@@ -1,76 +1,65 @@
-/*  ============================================
-    APP MODULE
-    Main controller - ties everything together
-    ============================================ */
-
 (function () {
     'use strict';
 
     let playerName = '';
     let isHost = false;
-    let myChoiceType = null;       // symbol key I chose
-    let opponentChoiceType = null; // symbol key opponent chose
-    let bothReady = false;
+    let myChoiceType = null;
+    let opponentChoiceType = null;
     let roundInProgress = false;
     let currentRoomCode = '';
+    let gameStarted = false;
 
-    // ---- INIT ----
     function init() {
-        // Check for saved name
         const savedName = localStorage.getItem('rspmp_player_name');
         if (savedName) {
             UI.setPlayerNameInput(savedName);
         }
 
-        // Check URL for room code
         const urlParams = new URLSearchParams(window.location.search);
         const roomFromUrl = urlParams.get('room');
+        if (roomFromUrl) {
+            window._autoJoinRoom = roomFromUrl.toUpperCase().trim();
+        }
 
         bindEvents();
-
-        if (roomFromUrl) {
-            // Auto-fill join screen
-            UI.setPlayerNameInput(savedName || '');
-            // We'll handle this after name is set
-            window._autoJoinRoom = roomFromUrl;
-        }
+        setupConnectionHandlers();
     }
 
-    // ---- EVENT BINDINGS ----
     function bindEvents() {
-        // Name screen
         document.getElementById('btn-confirm-name').addEventListener('click', onConfirmName);
-        document.getElementById('player-name').addEventListener('keypress', (e) => {
+        document.getElementById('player-name').addEventListener('keypress', function (e) {
             if (e.key === 'Enter') onConfirmName();
         });
 
-        // Menu
         document.getElementById('btn-host').addEventListener('click', onHost);
         document.getElementById('btn-join').addEventListener('click', onJoinScreen);
         document.getElementById('btn-rename').addEventListener('click', onRename);
 
-        // Host screen
         document.getElementById('btn-copy-code').addEventListener('click', onCopyCode);
         document.getElementById('btn-cancel-host').addEventListener('click', onCancelHost);
 
-        // Join screen
         document.getElementById('btn-join-confirm').addEventListener('click', onJoinConfirm);
-        document.getElementById('btn-join-back').addEventListener('click', () => UI.showScreen('screen-menu'));
-        document.getElementById('join-code').addEventListener('keypress', (e) => {
+        document.getElementById('btn-join-back').addEventListener('click', function () {
+            Connection.close();
+            UI.showScreen('screen-menu');
+        });
+        document.getElementById('join-code').addEventListener('keypress', function (e) {
             if (e.key === 'Enter') onJoinConfirm();
         });
 
-        // Game
-        document.getElementById('btn-exit-game').addEventListener('click', () => UI.showExitModal());
+        document.getElementById('btn-exit-game').addEventListener('click', function () {
+            UI.showExitModal();
+        });
 
-        // Exit modal
         document.getElementById('exit-confirm').addEventListener('click', onExitConfirm);
-        document.getElementById('exit-cancel').addEventListener('click', () => UI.hideExitModal());
+        document.getElementById('exit-cancel').addEventListener('click', function () {
+            UI.hideExitModal();
+        });
 
-        // Game over
         document.getElementById('btn-back-menu').addEventListener('click', onBackToMenu);
+    }
 
-        // Connection events
+    function setupConnectionHandlers() {
         Connection.onOpen(onConnectionOpen);
         Connection.onMessage(onConnectionMessage);
         Connection.onClose(onConnectionClose);
@@ -88,12 +77,15 @@
         UI.setDisplayName(playerName);
         UI.showScreen('screen-menu');
 
-        // Auto join if came from link
         if (window._autoJoinRoom) {
             const code = window._autoJoinRoom;
             delete window._autoJoinRoom;
             UI.setJoinCode(code);
             UI.showScreen('screen-join');
+            // Auto-join
+            setTimeout(function () {
+                onJoinConfirm();
+            }, 300);
         }
     }
 
@@ -105,38 +97,62 @@
     // ---- HOST ----
     async function onHost() {
         isHost = true;
+        gameStarted = false;
+
+        // Rebuild handlers since we're creating a new connection
+        setupConnectionHandlers();
+
+        UI.setRoomCode('...');
+        UI.setHostStatus('Conectando ao servidor...');
+        UI.showScreen('screen-host');
+
         try {
-            const roomCode = await Connection.host();
+            const roomCode = await Connection.host(function (status) {
+                UI.setHostStatus(status);
+            });
             currentRoomCode = roomCode;
             UI.setRoomCode(roomCode);
-            UI.showScreen('screen-host');
+            UI.setHostStatus('Aguardando oponente...');
+            console.log('[APP] Room created:', roomCode);
         } catch (err) {
+            console.error('[APP] Host error:', err);
             alert('Erro ao criar sala: ' + err.message);
+            UI.showScreen('screen-menu');
         }
     }
 
     function onCopyCode() {
         const link = UI.getRoomCodeForLink(currentRoomCode);
-        if (navigator.clipboard) {
-            navigator.clipboard.writeText(link).then(() => {
-                document.getElementById('btn-copy-code').textContent = 'Copiado!';
-                setTimeout(() => {
-                    document.getElementById('btn-copy-code').textContent = 'Copiar Link';
-                }, 2000);
+        const btn = document.getElementById('btn-copy-code');
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(link).then(function () {
+                btn.textContent = '✓ Copiado!';
+                setTimeout(function () { btn.textContent = 'Copiar Link'; }, 2000);
+            }).catch(function () {
+                fallbackCopy(link, btn);
             });
         } else {
-            // Fallback
-            const ta = document.createElement('textarea');
-            ta.value = link;
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand('copy');
-            document.body.removeChild(ta);
-            document.getElementById('btn-copy-code').textContent = 'Copiado!';
-            setTimeout(() => {
-                document.getElementById('btn-copy-code').textContent = 'Copiar Link';
-            }, 2000);
+            fallbackCopy(link, btn);
         }
+    }
+
+    function fallbackCopy(text, btn) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+            document.execCommand('copy');
+            btn.textContent = '✓ Copiado!';
+        } catch (e) {
+            btn.textContent = 'Erro ao copiar';
+            prompt('Copie o link manualmente:', text);
+        }
+        document.body.removeChild(ta);
+        setTimeout(function () { btn.textContent = 'Copiar Link'; }, 2000);
     }
 
     function onCancelHost() {
@@ -147,6 +163,7 @@
     // ---- JOIN ----
     function onJoinScreen() {
         UI.hideJoinError();
+        UI.hideJoinStatus();
         UI.setJoinCode('');
         UI.showScreen('screen-join');
     }
@@ -160,20 +177,36 @@
 
         UI.hideJoinError();
         isHost = false;
+        gameStarted = false;
+        currentRoomCode = code;
+
+        // Rebuild handlers
+        setupConnectionHandlers();
+
+        // Disable button during connection
+        const btn = document.getElementById('btn-join-confirm');
+        btn.disabled = true;
+        btn.textContent = 'Conectando...';
 
         try {
-            await Connection.join(code);
-            currentRoomCode = code;
-            // Will transition to game on connection open
-            UI.setGameStatus('Conectando...', '');
+            await Connection.join(code, function (status) {
+                UI.showJoinStatus(status);
+            });
+            UI.showJoinStatus('Conectado! Iniciando partida...');
+            console.log('[APP] Joined room:', code);
         } catch (err) {
+            console.error('[APP] Join error:', err);
             UI.showJoinError(err.message);
+            UI.hideJoinStatus();
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Entrar';
         }
     }
 
     // ---- CONNECTION CALLBACKS ----
     function onConnectionOpen() {
-        // Send name to opponent
+        console.log('[APP] Connection open, sending hello');
         Connection.send({
             type: 'hello',
             name: playerName
@@ -181,6 +214,13 @@
     }
 
     function onConnectionMessage(data) {
+        if (!data || !data.type) {
+            console.warn('[APP] Invalid message:', data);
+            return;
+        }
+
+        console.log('[APP] Message received:', data.type);
+
         switch (data.type) {
             case 'hello':
                 handleHello(data);
@@ -191,34 +231,36 @@
             case 'exit':
                 handleOpponentExit();
                 break;
-            case 'hand_seed':
-                // Host sends seed so both can have same randomness if needed
-                break;
         }
     }
 
     function onConnectionClose() {
-        if (!Game.getState().gameOver) {
+        console.log('[APP] Connection closed, gameStarted:', gameStarted);
+        if (gameStarted && !Game.getState().gameOver) {
             handleOpponentExit();
         }
     }
 
     // ---- HELLO HANDSHAKE ----
     function handleHello(data) {
-        const opponentName = data.name || 'Oponente';
+        if (gameStarted) return;
 
-        // Start game
+        const opponentName = data.name || 'Oponente';
+        gameStarted = true;
+
+        console.log('[APP] Game starting! Me:', playerName, 'vs', opponentName);
+
         Game.init(playerName, opponentName, isHost);
         UI.initGameUI(playerName, opponentName);
 
         const state = Game.getState();
-        UI.renderHand(state.myHand, state.myChoice, onCardSelect);
-
-        UI.showScreen('screen-game');
+        UI.renderHand(state.myHand, null, onCardSelect);
 
         myChoiceType = null;
         opponentChoiceType = null;
         roundInProgress = false;
+
+        UI.showScreen('screen-game');
     }
 
     // ---- CARD SELECTION ----
@@ -229,10 +271,8 @@
         if (state.gameOver) return;
         if (state.myHand[index].used) return;
 
-        // Toggle selection
-        const currentChoice = Game.getState().myChoice;
-        if (currentChoice === index) {
-            // Confirm the choice
+        if (state.myChoice === index) {
+            // Second click = confirm
             confirmAndSendChoice();
             return;
         }
@@ -254,17 +294,14 @@
         UI.renderHand(state.myHand, null, onCardSelect);
         UI.disableAllCards();
 
-        // Show my choice in battle area
         document.getElementById('battle-symbol-me').textContent = Game.SYMBOLS[choiceType].emoji;
 
-        // Send to opponent
         Connection.send({
             type: 'choice',
             symbol: choiceType
         });
 
         if (opponentChoiceType) {
-            // Opponent already chose, resolve immediately
             resolveRound();
         } else {
             UI.setGameStatus('Aguardando oponente escolher...', '');
@@ -277,7 +314,6 @@
         Game.receiveOpponentChoice(data.symbol);
 
         if (myChoiceType) {
-            // I already chose, resolve
             resolveRound();
         }
     }
@@ -287,26 +323,32 @@
         const result = Game.resolveRound();
         if (!result) return;
 
-        // Show battle result
         UI.showBattleResult(result.mySymbol, result.oppSymbol, result.result);
         UI.updateScores(result.myScore, result.oppScore);
 
-        // Status text
         if (result.result === 'win') {
-            UI.setGameStatus(`Você venceu a rodada! (${Game.SYMBOLS[result.mySymbol].name} > ${Game.SYMBOLS[result.oppSymbol].name})`, 'win');
+            UI.setGameStatus(
+                'Você venceu a rodada! (' + Game.SYMBOLS[result.mySymbol].name + ' > ' + Game.SYMBOLS[result.oppSymbol].name + ')',
+                'win'
+            );
         } else if (result.result === 'lose') {
-            UI.setGameStatus(`Você perdeu a rodada! (${Game.SYMBOLS[result.oppSymbol].name} > ${Game.SYMBOLS[result.mySymbol].name})`, 'lose');
+            UI.setGameStatus(
+                'Você perdeu a rodada! (' + Game.SYMBOLS[result.oppSymbol].name + ' > ' + Game.SYMBOLS[result.mySymbol].name + ')',
+                'lose'
+            );
         } else {
-            UI.setGameStatus(`Empate! Ambos jogaram ${Game.SYMBOLS[result.mySymbol].name}`, 'draw');
+            UI.setGameStatus(
+                'Empate! Ambos jogaram ' + Game.SYMBOLS[result.mySymbol].name,
+                'draw'
+            );
         }
 
-        // Add to log
         UI.addLogEntry(result.roundNumber, result.logText, result.result);
 
-        // Check game over
         if (result.gameOver) {
-            setTimeout(() => {
+            setTimeout(function () {
                 const state = Game.getState();
+                gameStarted = false;
                 UI.showGameOver(
                     result.winner,
                     state.myName,
@@ -320,8 +362,7 @@
             return;
         }
 
-        // Prepare next round after delay
-        setTimeout(() => {
+        setTimeout(function () {
             myChoiceType = null;
             opponentChoiceType = null;
             roundInProgress = false;
@@ -329,9 +370,8 @@
             const state = Game.getState();
 
             if (result.newHand) {
-                // Animate new hand
                 UI.setGameStatus('Novas cartas distribuídas!', '');
-                setTimeout(() => {
+                setTimeout(function () {
                     UI.renderHand(state.myHand, null, onCardSelect);
                     UI.resetBattle();
                     UI.setGameStatus('Escolha uma carta para jogar', '');
@@ -348,10 +388,12 @@
     function onExitConfirm() {
         UI.hideExitModal();
         Connection.send({ type: 'exit' });
-        Connection.close();
 
         const state = Game.getState();
         Game.forceEnd();
+        gameStarted = false;
+
+        Connection.close();
 
         UI.showGameOver(
             'cancelled',
@@ -368,10 +410,16 @@
         UI.hideExitModal();
 
         const state = Game.getState();
+        gameStarted = false;
+
         Connection.close();
 
+        let winner = 'cancelled';
+        if (state.myScore > state.opponentScore) winner = 'me';
+        else if (state.opponentScore > state.myScore) winner = 'opponent';
+
         UI.showGameOver(
-            state.myScore > state.opponentScore ? 'me' : (state.opponentScore > state.myScore ? 'opponent' : 'cancelled'),
+            winner,
             state.myName,
             state.opponentName,
             state.myScore,
@@ -382,12 +430,11 @@
 
     function onBackToMenu() {
         Connection.close();
-        // Clean URL params
+        gameStarted = false;
         const url = window.location.href.split('?')[0].split('#')[0];
         window.history.replaceState({}, '', url);
         UI.showScreen('screen-menu');
     }
 
-    // ---- START ----
     document.addEventListener('DOMContentLoaded', init);
 })();
