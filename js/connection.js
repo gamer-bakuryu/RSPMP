@@ -1,34 +1,72 @@
 /* ============================================
-   DEBUG (global)
+   DEBUG — renderiza em todos os .debug-output
    ============================================ */
 var Debug = (function () {
-    var lines = [];
+    var entries = [];
+    var MAX = 150;
+
     function ts() {
         var d = new Date();
         return ('0' + d.getMinutes()).slice(-2) + ':' +
-               ('0' + d.getSeconds()).slice(-2) + '.' +
-               ('00' + d.getMilliseconds()).slice(-3);
+               ('0' + d.getSeconds()).slice(-2);
     }
+
+    function kindOf(msg) {
+        if (/ERRO|erro|falha|expirou|NAO |nao abriu|fechad/i.test(msg)) return 'err';
+        if (/ABERTO|INICIANDO|REVANCHE|criada|conectado!/i.test(msg)) return 'ok';
+        if (/<</.test(msg)) return 'in';
+        if (/>>/.test(msg)) return 'out';
+        return 'sys';
+    }
+
+    function clean(msg) {
+        return msg
+            .replace(/^CONN >>\s*/, '› ')
+            .replace(/^CONN <<\s*/, '‹ ')
+            .replace(/^HOST >>\s*/, '[H] ')
+            .replace(/^JOIN >>\s*/, '[G] ')
+            .replace(/^APP >>\s*/, '• ')
+            .replace(/^HS >>\s*/, '~ ');
+    }
+
     function log() {
         var msg = Array.prototype.slice.call(arguments).map(function (a) {
-            if (typeof a === 'object') {
+            if (a && typeof a === 'object') {
                 try { return JSON.stringify(a); } catch (e) { return String(a); }
             }
             return String(a);
         }).join(' ');
-        var full = '[' + ts() + '] ' + msg;
-        lines.push(full);
-        if (lines.length > 200) lines.shift();
-        if (window.console) console.log(full);
+
+        entries.push({ t: ts(), m: clean(msg), k: kindOf(msg) });
+        if (entries.length > MAX) entries.shift();
+
+        if (window.console) console.log('[' + ts() + '] ' + msg);
         render();
     }
+
     function render() {
-        var body = document.getElementById('debug-body');
-        if (!body) return;
-        body.textContent = lines.join('\n');
-        body.scrollTop = body.scrollHeight;
+        var outs = document.querySelectorAll('.debug-output');
+        if (!outs.length) return;
+
+        var html = entries.map(function (e) {
+            return '<span class="dbg-line ' + e.k + '">' +
+                   '<span class="dbg-time">' + e.t + '</span>' +
+                   '<span class="dbg-msg">' + escapeHtml(e.m) + '</span>' +
+                   '</span>';
+        }).join('');
+
+        for (var i = 0; i < outs.length; i++) {
+            outs[i].innerHTML = html;
+            outs[i].scrollTop = outs[i].scrollHeight;
+        }
     }
-    function clear() { lines = []; render(); }
+
+    function escapeHtml(s) {
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function clear() { entries = []; render(); }
+
     return { log: log, clear: clear, render: render };
 })();
 
@@ -65,7 +103,6 @@ var Connection = (function () {
         if (cbOpen) cbOpen();
     }
 
-    // Vigia o estado "open" da conexão (o evento 'open' nem sempre dispara no host)
     function watchOpen() {
         stopPoll();
         var tries = 0;
@@ -73,10 +110,10 @@ var Connection = (function () {
             tries++;
             if (killed) { stopPoll(); return; }
             if (conn && conn.open) {
-                Debug.log('CONN >> open detectado por polling (try ' + tries + ')');
+                Debug.log('CONN >> open via polling (' + tries + ')');
                 fireOpen();
-            } else if (tries > 100) { // 20s
-                Debug.log('CONN >> polling expirou, canal nao abriu');
+            } else if (tries > 100) {
+                Debug.log('CONN >> canal nao abriu');
                 stopPoll();
             }
         }, 200);
@@ -85,26 +122,23 @@ var Connection = (function () {
     function attach(c) {
         conn = c;
         openFired = false;
-        Debug.log('CONN >> attach. peer=' + c.peer + ' open=' + c.open);
+        Debug.log('CONN >> attach ' + c.peer.replace(PREFIX, ''));
 
-        c.on('open', function () {
-            Debug.log('CONN >> evento open');
-            fireOpen();
-        });
+        c.on('open', function () { fireOpen(); });
 
         c.on('data', function (data) {
-            Debug.log('CONN << recebido:', data);
+            Debug.log('CONN << ' + (data && data.type ? data.type : '?'));
             if (cbMessage) cbMessage(data);
         });
 
         c.on('close', function () {
-            Debug.log('CONN >> close');
+            Debug.log('CONN >> conexao fechada');
             stopPoll();
             if (cbClose) cbClose();
         });
 
         c.on('error', function (err) {
-            Debug.log('CONN >> ERRO', err && err.type ? err.type : err);
+            Debug.log('CONN >> ERRO ' + (err && err.type ? err.type : err));
         });
 
         if (c.open) fireOpen();
@@ -140,14 +174,14 @@ var Connection = (function () {
 
             var code = randomCode();
             var id = PREFIX + code;
-            Debug.log('HOST >> criando peer ' + id);
+            Debug.log('HOST >> criando sala ' + code);
             if (status) status('Conectando ao servidor...');
 
             peer = makePeer(id);
             var done = false;
 
-            peer.on('open', function (realId) {
-                Debug.log('HOST >> registrado no servidor como ' + realId);
+            peer.on('open', function () {
+                Debug.log('HOST >> sala criada e registrada');
                 if (!done) {
                     done = true;
                     if (status) status('Aguardando oponente...');
@@ -156,14 +190,14 @@ var Connection = (function () {
             });
 
             peer.on('connection', function (c) {
-                Debug.log('HOST >> CONEXAO RECEBIDA de ' + c.peer);
-                if (status) status('Oponente encontrado, conectando...');
+                Debug.log('HOST >> oponente chegou');
+                if (status) status('Oponente encontrado...');
                 attach(c);
             });
 
             peer.on('error', function (err) {
                 var t = err && err.type ? err.type : 'desconhecido';
-                Debug.log('HOST >> ERRO peer: ' + t);
+                Debug.log('HOST >> ERRO ' + t);
                 if (!done) {
                     done = true;
                     if (t === 'unavailable-id') {
@@ -176,17 +210,14 @@ var Connection = (function () {
             });
 
             peer.on('disconnected', function () {
-                Debug.log('HOST >> desconectado do servidor, reconectando...');
+                Debug.log('HOST >> reconectando ao servidor');
                 if (!killed && peer && !peer.destroyed) {
                     try { peer.reconnect(); } catch (e) {}
                 }
             });
 
             setTimeout(function () {
-                if (!done) {
-                    done = true;
-                    reject(new Error('Tempo esgotado ao registrar a sala.'));
-                }
+                if (!done) { done = true; reject(new Error('Tempo esgotado ao registrar a sala.')); }
             }, 20000);
         });
     }
@@ -198,7 +229,7 @@ var Connection = (function () {
             destroyPeer();
 
             var target = PREFIX + code.toUpperCase().trim();
-            Debug.log('JOIN >> alvo ' + target);
+            Debug.log('JOIN >> buscando sala ' + code);
             if (status) status('Conectando ao servidor...');
 
             peer = makePeer(null);
@@ -208,14 +239,14 @@ var Connection = (function () {
             function tryConnect() {
                 if (done || killed) return;
                 tries++;
-                Debug.log('JOIN >> tentativa ' + tries + ' -> ' + target);
+                Debug.log('JOIN >> tentativa ' + tries);
                 if (status) status('Procurando sala... (' + tries + '/4)');
 
                 var c = peer.connect(target, { reliable: true });
 
                 var to = setTimeout(function () {
                     if (done) return;
-                    if (tries < 4) { tryConnect(); }
+                    if (tries < 4) tryConnect();
                     else {
                         done = true;
                         reject(new Error('Sala não encontrada. Confirme o código e se o host está na tela "Sala Criada".'));
@@ -234,22 +265,19 @@ var Connection = (function () {
 
                 c.on('error', function (e) {
                     clearTimeout(to);
-                    Debug.log('JOIN >> erro na conexao', e && e.type);
+                    Debug.log('JOIN >> ERRO ' + (e && e.type));
                     if (!done && tries < 4) setTimeout(tryConnect, 1200);
                 });
             }
 
-            peer.on('open', function (myId) {
-                Debug.log('JOIN >> meu id ' + myId);
-                tryConnect();
-            });
+            peer.on('open', function () { tryConnect(); });
 
             peer.on('error', function (err) {
                 var t = err && err.type ? err.type : 'desconhecido';
-                Debug.log('JOIN >> ERRO peer: ' + t);
+                Debug.log('JOIN >> ERRO ' + t);
                 if (done) return;
                 if (t === 'peer-unavailable') {
-                    if (tries < 4) { setTimeout(tryConnect, 1500); }
+                    if (tries < 4) setTimeout(tryConnect, 1500);
                     else {
                         done = true;
                         reject(new Error('Sala não encontrada. Confirme o código e se o host está na tela "Sala Criada".'));
@@ -267,10 +295,7 @@ var Connection = (function () {
             });
 
             setTimeout(function () {
-                if (!done) {
-                    done = true;
-                    reject(new Error('Tempo esgotado ao conectar.'));
-                }
+                if (!done) { done = true; reject(new Error('Tempo esgotado ao conectar.')); }
             }, 35000);
         });
     }
@@ -279,19 +304,18 @@ var Connection = (function () {
         if (conn && conn.open) {
             try {
                 conn.send(data);
-                Debug.log('CONN >> enviado:', data);
+                Debug.log('CONN >> ' + (data && data.type ? data.type : '?'));
                 return true;
             } catch (e) {
-                Debug.log('CONN >> falha ao enviar', e.message);
+                Debug.log('CONN >> falha ao enviar');
                 return false;
             }
         }
-        Debug.log('CONN >> NAO enviado (canal fechado):', data);
         return false;
     }
 
     function close() {
-        Debug.log('CONN >> fechando tudo');
+        Debug.log('CONN >> encerrando');
         killed = true;
         destroyPeer();
     }
