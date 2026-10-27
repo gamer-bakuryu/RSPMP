@@ -8,6 +8,7 @@
     let roundInProgress = false;
     let currentRoomCode = '';
     let gameStarted = false;
+    let helloPending = false;
 
     function init() {
         const savedName = localStorage.getItem('rspmp_player_name');
@@ -78,14 +79,13 @@
         UI.showScreen('screen-menu');
 
         if (window._autoJoinRoom) {
-            const code = window._autoJoinRoom;
+            var code = window._autoJoinRoom;
             delete window._autoJoinRoom;
             UI.setJoinCode(code);
             UI.showScreen('screen-join');
-            // Auto-join
             setTimeout(function () {
                 onJoinConfirm();
-            }, 300);
+            }, 500);
         }
     }
 
@@ -98,8 +98,8 @@
     async function onHost() {
         isHost = true;
         gameStarted = false;
+        helloPending = false;
 
-        // Rebuild handlers since we're creating a new connection
         setupConnectionHandlers();
 
         UI.setRoomCode('...');
@@ -107,7 +107,7 @@
         UI.showScreen('screen-host');
 
         try {
-            const roomCode = await Connection.host(function (status) {
+            var roomCode = await Connection.host(function (status) {
                 UI.setHostStatus(status);
             });
             currentRoomCode = roomCode;
@@ -122,8 +122,8 @@
     }
 
     function onCopyCode() {
-        const link = UI.getRoomCodeForLink(currentRoomCode);
-        const btn = document.getElementById('btn-copy-code');
+        var link = UI.getRoomCodeForLink(currentRoomCode);
+        var btn = document.getElementById('btn-copy-code');
 
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(link).then(function () {
@@ -138,7 +138,7 @@
     }
 
     function fallbackCopy(text, btn) {
-        const ta = document.createElement('textarea');
+        var ta = document.createElement('textarea');
         ta.value = text;
         ta.style.position = 'fixed';
         ta.style.left = '-9999px';
@@ -148,8 +148,8 @@
             document.execCommand('copy');
             btn.textContent = '✓ Copiado!';
         } catch (e) {
-            btn.textContent = 'Erro ao copiar';
-            prompt('Copie o link manualmente:', text);
+            btn.textContent = 'Erro';
+            prompt('Copie manualmente:', text);
         }
         document.body.removeChild(ta);
         setTimeout(function () { btn.textContent = 'Copiar Link'; }, 2000);
@@ -169,7 +169,7 @@
     }
 
     async function onJoinConfirm() {
-        const code = UI.getJoinCode();
+        var code = UI.getJoinCode();
         if (!code) {
             UI.showJoinError('Digite o código da sala.');
             return;
@@ -178,13 +178,12 @@
         UI.hideJoinError();
         isHost = false;
         gameStarted = false;
+        helloPending = false;
         currentRoomCode = code;
 
-        // Rebuild handlers
         setupConnectionHandlers();
 
-        // Disable button during connection
-        const btn = document.getElementById('btn-join-confirm');
+        var btn = document.getElementById('btn-join-confirm');
         btn.disabled = true;
         btn.textContent = 'Conectando...';
 
@@ -206,11 +205,32 @@
 
     // ---- CONNECTION CALLBACKS ----
     function onConnectionOpen() {
-        console.log('[APP] Connection open, sending hello');
-        Connection.send({
+        console.log('[APP] Connection open! Sending hello. isHost:', isHost);
+
+        // Send hello
+        var sent = Connection.send({
             type: 'hello',
             name: playerName
         });
+
+        console.log('[APP] Hello sent:', sent);
+
+        if (!sent) {
+            // If send failed, try again after a short delay
+            helloPending = true;
+            setTimeout(function () {
+                if (helloPending && Connection.isConnected()) {
+                    console.log('[APP] Retry sending hello');
+                    Connection.send({
+                        type: 'hello',
+                        name: playerName
+                    });
+                    helloPending = false;
+                }
+            }, 1000);
+        } else {
+            helloPending = false;
+        }
     }
 
     function onConnectionMessage(data) {
@@ -219,7 +239,7 @@
             return;
         }
 
-        console.log('[APP] Message received:', data.type);
+        console.log('[APP] Message received:', data.type, 'gameStarted:', gameStarted);
 
         switch (data.type) {
             case 'hello':
@@ -235,7 +255,7 @@
     }
 
     function onConnectionClose() {
-        console.log('[APP] Connection closed, gameStarted:', gameStarted);
+        console.log('[APP] Connection closed. gameStarted:', gameStarted);
         if (gameStarted && !Game.getState().gameOver) {
             handleOpponentExit();
         }
@@ -243,17 +263,35 @@
 
     // ---- HELLO HANDSHAKE ----
     function handleHello(data) {
-        if (gameStarted) return;
+        var opponentName = data.name || 'Oponente';
+        console.log('[APP] Received hello from:', opponentName, 'gameStarted:', gameStarted);
 
-        const opponentName = data.name || 'Oponente';
+        if (gameStarted) {
+            // Already started, ignore duplicate hello
+            console.log('[APP] Game already started, ignoring hello');
+            return;
+        }
+
+        // If we haven't sent our hello yet (maybe connection opened
+        // but our onOpen didn't fire in time), send it now
+        if (helloPending || !Connection.isConnected()) {
+            console.log('[APP] Sending late hello back');
+            setTimeout(function() {
+                Connection.send({
+                    type: 'hello',
+                    name: playerName
+                });
+            }, 200);
+        }
+
         gameStarted = true;
 
-        console.log('[APP] Game starting! Me:', playerName, 'vs', opponentName);
+        console.log('[APP] Starting game! Me:', playerName, 'vs', opponentName);
 
         Game.init(playerName, opponentName, isHost);
         UI.initGameUI(playerName, opponentName);
 
-        const state = Game.getState();
+        var state = Game.getState();
         UI.renderHand(state.myHand, null, onCardSelect);
 
         myChoiceType = null;
@@ -267,30 +305,29 @@
     function onCardSelect(index) {
         if (roundInProgress) return;
 
-        const state = Game.getState();
+        var state = Game.getState();
         if (state.gameOver) return;
         if (state.myHand[index].used) return;
 
         if (state.myChoice === index) {
-            // Second click = confirm
             confirmAndSendChoice();
             return;
         }
 
         Game.selectCard(index);
-        const newState = Game.getState();
+        var newState = Game.getState();
         UI.renderHand(newState.myHand, newState.myChoice, onCardSelect);
         UI.setGameStatus('Clique novamente na carta para confirmar', '');
     }
 
     function confirmAndSendChoice() {
-        const choiceType = Game.confirmChoice();
+        var choiceType = Game.confirmChoice();
         if (!choiceType) return;
 
         myChoiceType = choiceType;
         roundInProgress = true;
 
-        const state = Game.getState();
+        var state = Game.getState();
         UI.renderHand(state.myHand, null, onCardSelect);
         UI.disableAllCards();
 
@@ -320,7 +357,7 @@
 
     // ---- RESOLVE ROUND ----
     function resolveRound() {
-        const result = Game.resolveRound();
+        var result = Game.resolveRound();
         if (!result) return;
 
         UI.showBattleResult(result.mySymbol, result.oppSymbol, result.result);
@@ -347,7 +384,7 @@
 
         if (result.gameOver) {
             setTimeout(function () {
-                const state = Game.getState();
+                var state = Game.getState();
                 gameStarted = false;
                 UI.showGameOver(
                     result.winner,
@@ -367,7 +404,7 @@
             opponentChoiceType = null;
             roundInProgress = false;
 
-            const state = Game.getState();
+            var state = Game.getState();
 
             if (result.newHand) {
                 UI.setGameStatus('Novas cartas distribuídas!', '');
@@ -389,7 +426,7 @@
         UI.hideExitModal();
         Connection.send({ type: 'exit' });
 
-        const state = Game.getState();
+        var state = Game.getState();
         Game.forceEnd();
         gameStarted = false;
 
@@ -409,12 +446,12 @@
         Game.forceEnd();
         UI.hideExitModal();
 
-        const state = Game.getState();
+        var state = Game.getState();
         gameStarted = false;
 
         Connection.close();
 
-        let winner = 'cancelled';
+        var winner = 'cancelled';
         if (state.myScore > state.opponentScore) winner = 'me';
         else if (state.opponentScore > state.myScore) winner = 'opponent';
 
@@ -431,7 +468,7 @@
     function onBackToMenu() {
         Connection.close();
         gameStarted = false;
-        const url = window.location.href.split('?')[0].split('#')[0];
+        var url = window.location.href.split('?')[0].split('#')[0];
         window.history.replaceState({}, '', url);
         UI.showScreen('screen-menu');
     }
