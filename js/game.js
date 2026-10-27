@@ -1,8 +1,3 @@
-/*  ============================================
-    GAME MODULE
-    Card-based Rock Paper Scissors logic
-    ============================================ */
-
 const Game = (() => {
     const SYMBOLS = {
         ROCK: { emoji: '🪨', name: 'Pedra', beats: 'SCISSORS' },
@@ -17,12 +12,12 @@ const Game = (() => {
         opponentName: '',
         myScore: 0,
         opponentScore: 0,
-        myHand: [],           // array of { id, type, used }
-        myChoice: null,       // index in hand
-        opponentChoice: null, // symbol key
+        myHand: [],
+        myChoice: null,
+        opponentChoice: null,
         roundNumber: 0,
         log: [],
-        waiting: false,       // waiting for opponent's choice
+        waiting: false,
         gameOver: false,
         isHost: false
     };
@@ -42,7 +37,8 @@ const Game = (() => {
         return hand;
     }
 
-    function init(myName, opponentName, isHost) {
+    function init(myName, opponentName, host) {
+        cardIdCounter = 0;
         state = {
             myName: myName,
             opponentName: opponentName,
@@ -55,32 +51,32 @@ const Game = (() => {
             log: [],
             waiting: false,
             gameOver: false,
-            isHost: isHost
+            isHost: host
         };
-        cardIdCounter = 5;
-        return state;
-    }
-
-    function getState() {
         return { ...state };
     }
 
-    function selectCard(cardIndex) {
-        if (state.gameOver) return false;
-        if (state.waiting) return false;
-        if (state.myHand[cardIndex].used) return false;
+    function getState() {
+        return { ...state, myHand: state.myHand.map(c => ({ ...c })) };
+    }
 
+    function selectCard(cardIndex) {
+        if (state.gameOver || state.waiting) return false;
+        if (cardIndex < 0 || cardIndex >= state.myHand.length) return false;
+        if (state.myHand[cardIndex].used) return false;
         state.myChoice = cardIndex;
         return true;
     }
 
+    function deselectCard() {
+        state.myChoice = null;
+    }
+
     function confirmChoice() {
         if (state.myChoice === null) return null;
-
         const card = state.myHand[state.myChoice];
         card.used = true;
         state.waiting = true;
-
         return card.type;
     }
 
@@ -108,12 +104,11 @@ const Game = (() => {
             state.opponentScore++;
         }
 
-        // Log entry
         let logText;
         if (result === 'win') {
-            logText = `${state.myName} venceu!`;
+            logText = state.myName + ' venceu!';
         } else if (result === 'lose') {
-            logText = `${state.opponentName} venceu!`;
+            logText = state.opponentName + ' venceu!';
         } else {
             logText = 'Empate!';
         }
@@ -133,22 +128,22 @@ const Game = (() => {
             myScore: state.myScore,
             oppScore: state.opponentScore,
             roundNumber: state.roundNumber,
-            logText: logText
+            logText: logText,
+            gameOver: false,
+            winner: null,
+            newHand: false
         };
 
-        // Check game over: 2 points advantage
         if (Math.abs(state.myScore - state.opponentScore) >= 2 && state.roundNumber >= 2) {
             state.gameOver = true;
             roundResult.gameOver = true;
             roundResult.winner = state.myScore > state.opponentScore ? 'me' : 'opponent';
         }
 
-        // Reset for next round
         state.myChoice = null;
         state.opponentChoice = null;
         state.waiting = false;
 
-        // Check if need new hand
         const availableCards = state.myHand.filter(c => !c.used);
         if (availableCards.length === 0 && !state.gameOver) {
             state.myHand = generateHand();
@@ -169,6 +164,7 @@ const Game = (() => {
         getState,
         generateHand,
         selectCard,
+        deselectCard,
         confirmChoice,
         receiveOpponentChoice,
         resolveRound,
