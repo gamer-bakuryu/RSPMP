@@ -8,6 +8,7 @@ const Connection = (() => {
     let myRoomId = null;
     let hostReady = false;
     let destroyed = false;
+    let connected = false;
 
     const ID_PREFIX = 'rspmp-game-';
 
@@ -21,6 +22,7 @@ const Connection = (() => {
     }
 
     function cleanUp() {
+        connected = false;
         if (conn) {
             try { conn.close(); } catch (e) {}
             conn = null;
@@ -33,12 +35,27 @@ const Connection = (() => {
         destroyed = true;
     }
 
+    function fireOpen() {
+        if (!connected) {
+            connected = true;
+            console.log('[CONN] Firing onOpen callback');
+            if (onOpenCallback) onOpenCallback();
+        }
+    }
+
     function setupConn(c) {
         conn = c;
 
+        // If the connection is ALREADY open (common for host),
+        // fire open immediately
+        if (conn.open) {
+            console.log('[CONN] Connection already open on setup');
+            fireOpen();
+        }
+
         conn.on('open', () => {
-            console.log('[CONN] Data channel open');
-            if (onOpenCallback) onOpenCallback();
+            console.log('[CONN] Data channel open event');
+            fireOpen();
         });
 
         conn.on('data', (data) => {
@@ -48,11 +65,13 @@ const Connection = (() => {
 
         conn.on('close', () => {
             console.log('[CONN] Connection closed');
+            connected = false;
             if (onCloseCallback) onCloseCallback();
         });
 
         conn.on('error', (err) => {
             console.error('[CONN] Error:', err);
+            connected = false;
             if (onCloseCallback) onCloseCallback();
         });
     }
@@ -60,6 +79,7 @@ const Connection = (() => {
     function host(onStatusUpdate) {
         return new Promise((resolve, reject) => {
             destroyed = false;
+            connected = false;
             isHost = true;
             myRoomId = generateRoomId();
             const peerId = ID_PREFIX + myRoomId;
@@ -87,7 +107,18 @@ const Connection = (() => {
 
             peer.on('connection', (incomingConn) => {
                 console.log('[HOST] Incoming connection from:', incomingConn.peer);
+                console.log('[HOST] Connection open state:', incomingConn.open);
+
+                // Setup the connection (will also check if already open)
                 setupConn(incomingConn);
+
+                // Also add a small delay fallback in case open state is delayed
+                setTimeout(() => {
+                    if (conn && conn.open && !connected) {
+                        console.log('[HOST] Delayed open detection');
+                        fireOpen();
+                    }
+                }, 500);
             });
 
             peer.on('error', (err) => {
@@ -95,16 +126,23 @@ const Connection = (() => {
                 if (!resolved) {
                     resolved = true;
                     if (err.type === 'unavailable-id') {
+                        if (peer) { try { peer.destroy(); } catch(e){} }
                         myRoomId = generateRoomId();
                         const newPeerId = ID_PREFIX + myRoomId;
-                        if (peer) { try { peer.destroy(); } catch(e){} }
                         peer = new Peer(newPeerId);
                         peer.on('open', (id2) => {
                             hostReady = true;
                             if (onStatusUpdate) onStatusUpdate('Aguardando oponente...');
                             resolve(myRoomId);
                         });
-                        peer.on('connection', (ic) => { setupConn(ic); });
+                        peer.on('connection', (ic) => {
+                            setupConn(ic);
+                            setTimeout(() => {
+                                if (conn && conn.open && !connected) {
+                                    fireOpen();
+                                }
+                            }, 500);
+                        });
                         peer.on('error', (e2) => {
                             reject(new Error('Erro ao criar sala. Tente novamente.'));
                         });
@@ -133,6 +171,7 @@ const Connection = (() => {
     function join(code, onStatusUpdate) {
         return new Promise((resolve, reject) => {
             destroyed = false;
+            connected = false;
             isHost = false;
             myRoomId = code.toUpperCase().trim();
             const hostPeerId = ID_PREFIX + myRoomId;
@@ -178,7 +217,7 @@ const Connection = (() => {
                     clearTimeout(connectTimeout);
                     if (!resolved) {
                         resolved = true;
-                        console.log('[JOIN] Connected!');
+                        console.log('[JOIN] Connected successfully!');
                         setupConn(c);
                         if (onStatusUpdate) onStatusUpdate('Conectado!');
                         resolve();
@@ -246,7 +285,7 @@ const Connection = (() => {
             conn.send(data);
             return true;
         }
-        console.warn('[CONN] Cannot send, connection not open');
+        console.warn('[CONN] Cannot send - open:', conn ? conn.open : 'no conn');
         return false;
     }
 
@@ -259,7 +298,7 @@ const Connection = (() => {
     function onClose(cb) { onCloseCallback = cb; }
 
     function isConnected() {
-        return conn && conn.open;
+        return conn && conn.open && connected;
     }
 
     function isHostReady() {
