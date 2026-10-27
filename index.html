@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RSPMP - Pedra, Papel & Tesoura</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- MODAL DE CONFIRMAÇÃO DE SAÍDA -->
+    <div id="exit-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <p>Tem certeza que deseja sair da sala?</p>
+            <p class="modal-sub">Isso encerrará a partida para ambos os jogadores.</p>
+            <div class="modal-buttons">
+                <button id="exit-confirm" class="btn btn-danger">Sim, sair</button>
+                <button id="exit-cancel" class="btn btn-secondary">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TELA: INSERIR NOME -->
+    <div id="screen-name" class="screen active">
+        <div class="container name-container">
+            <div class="title-block">
+                <h1>RSPMP</h1>
+                <p class="subtitle">Pedra, Papel & Tesoura — Multiplayer</p>
+            </div>
+            <div class="input-group">
+                <label for="player-name">Digite seu nome</label>
+                <input type="text" id="player-name" maxlength="16" placeholder="Seu nome..." autocomplete="off">
+            </div>
+            <button id="btn-confirm-name" class="btn btn-primary">Confirmar</button>
+        </div>
+    </div>
+
+    <!-- TELA: MENU PRINCIPAL -->
+    <div id="screen-menu" class="screen hidden">
+        <div class="container menu-container">
+            <div class="title-block">
+                <h1>RSPMP</h1>
+                <p class="subtitle">Bem-vindo, <span id="display-name"></span></p>
+            </div>
+            <div class="menu-buttons">
+                <button id="btn-host" class="btn btn-primary">Hospedar Novo Jogo</button>
+                <button id="btn-join" class="btn btn-primary">Entrar em Partida</button>
+                <button id="btn-rename" class="btn btn-secondary">Mudar Nome</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TELA: HOSPEDAR (AGUARDANDO) -->
+    <div id="screen-host" class="screen hidden">
+        <div class="container host-container">
+            <div class="title-block">
+                <h1>Sala Criada</h1>
+                <p class="subtitle">Compartilhe o código abaixo com seu amigo</p>
+            </div>
+            <div class="room-code-block">
+                <span id="room-code-display" class="room-code"></span>
+                <button id="btn-copy-code" class="btn btn-small">Copiar Link</button>
+            </div>
+            <div class="waiting-indicator">
+                <div class="spinner"></div>
+                <p>Aguardando oponente...</p>
+            </div>
+            <button id="btn-cancel-host" class="btn btn-secondary">Cancelar</button>
+        </div>
+    </div>
+
+    <!-- TELA: ENTRAR EM PARTIDA -->
+    <div id="screen-join" class="screen hidden">
+        <div class="container join-container">
+            <div class="title-block">
+                <h1>Entrar em Partida</h1>
+                <p class="subtitle">Digite o código da sala</p>
+            </div>
+            <div class="input-group">
+                <label for="join-code">Código da Sala</label>
+                <input type="text" id="join-code" maxlength="20" placeholder="Ex: ABC123" autocomplete="off">
+            </div>
+            <button id="btn-join-confirm" class="btn btn-primary">Entrar</button>
+            <button id="btn-join-back" class="btn btn-secondary">Voltar</button>
+            <p id="join-error" class="error-text hidden"></p>
+        </div>
+    </div>
+
+    <!-- TELA: JOGO -->
+    <div id="screen-game" class="screen hidden">
+        <div class="game-layout">
+            <!-- COLUNA ESQUERDA: BOTÃO SAIR -->
+            <div class="game-left">
+                <button id="btn-exit-game" class="btn btn-danger btn-exit">Sair da Sala</button>
+            </div>
+
+            <!-- COLUNA CENTRAL: ÁREA DE JOGO -->
+            <div class="game-center">
+                <!-- PLACAR -->
+                <div class="scoreboard">
+                    <div class="score-player">
+                        <span class="score-name" id="score-name-me">Você</span>
+                        <span class="score-value" id="score-me">0</span>
+                    </div>
+                    <div class="score-vs">VS</div>
+                    <div class="score-player">
+                        <span class="score-name" id="score-name-opponent">Oponente</span>
+                        <span class="score-value" id="score-opponent">0</span>
+                    </div>
+                </div>
+
+                <!-- ÁREA DE CONFRONTO -->
+                <div class="battle-area">
+                    <div class="battle-card" id="battle-me">
+                        <span class="battle-label" id="battle-label-me">Você</span>
+                        <div class="battle-symbol" id="battle-symbol-me">?</div>
+                    </div>
+                    <div class="battle-vs">⚔️</div>
+                    <div class="battle-card" id="battle-opponent">
+                        <span class="battle-label" id="battle-label-opponent">Oponente</span>
+                        <div class="battle-symbol" id="battle-symbol-opponent">?</div>
+                    </div>
+                </div>
+
+                <!-- STATUS -->
+                <div id="game-status" class="game-status">Escolha uma carta para jogar</div>
+
+                <!-- MÃO DE CARTAS -->
+                <div class="hand-area">
+                    <div id="hand-cards" class="hand-cards">
+                        <!-- Cards inserted via JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- COLUNA DIREITA: LOG -->
+            <div class="game-right">
+                <div class="log-panel">
+                    <h3>Log da Partida</h3>
+                    <div id="game-log" class="log-entries">
+                        <!-- Log entries inserted via JS -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TELA: FIM DE JOGO -->
+    <div id="screen-gameover" class="screen hidden">
+        <div class="container gameover-container">
+            <div class="title-block">
+                <h1 id="gameover-title">Fim de Jogo!</h1>
+                <p class="subtitle" id="gameover-subtitle"></p>
+            </div>
+            <div id="gameover-stats" class="gameover-stats"></div>
+            <button id="btn-back-menu" class="btn btn-primary">Voltar ao Menu</button>
+        </div>
+    </div>
+
+    <script src="js/connection.js"></script>
+    <script src="js/game.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
