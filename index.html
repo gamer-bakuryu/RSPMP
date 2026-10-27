@@ -7,15 +7,15 @@
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <!-- PAINEL DE DEBUG -->
-    <button id="debug-toggle" title="Debug">⚙</button>
+    <!-- DEBUG FLUTUANTE (telas fora do jogo) -->
+    <button id="debug-toggle" title="Log de conexão">⚙</button>
     <div id="debug-panel" class="hidden">
         <div class="debug-head">
-            <span>DEBUG LOG</span>
+            <span>LOG DE CONEXÃO</span>
             <button id="debug-clear">limpar</button>
             <button id="debug-close">fechar</button>
         </div>
-        <div id="debug-body"></div>
+        <div class="debug-output" id="debug-body"></div>
     </div>
 
     <!-- MODAL DE CONFIRMAÇÃO DE SAÍDA -->
@@ -35,7 +35,7 @@
         <div class="container name-container">
             <div class="title-block">
                 <h1>RSPMP</h1>
-                <p class="subtitle">Pedra, Papel & Tesoura — Multiplayer</p>
+                <p class="subtitle">Pedra, Papel &amp; Tesoura — Multiplayer</p>
             </div>
             <div class="input-group">
                 <label for="player-name">Digite seu nome</label>
@@ -100,10 +100,25 @@
     <!-- TELA: JOGO -->
     <div id="screen-game" class="screen hidden">
         <div class="game-layout">
+
+            <!-- COLUNA ESQUERDA -->
             <div class="game-left">
                 <button id="btn-exit-game" class="btn btn-danger btn-exit">Sair da Sala</button>
+
+                <div class="side-box conn-box">
+                    <div class="side-box-head">
+                        <span class="conn-dot" id="conn-dot"></span>
+                        <span>Conexão</span>
+                    </div>
+                    <div class="conn-room">
+                        Sala: <strong id="conn-room-code">—</strong>
+                    </div>
+                    <div class="side-box-sub">Log</div>
+                    <div class="debug-output conn-log" id="conn-log-body"></div>
+                </div>
             </div>
 
+            <!-- COLUNA CENTRAL -->
             <div class="game-center">
                 <div class="scoreboard">
                     <div class="score-player">
@@ -136,12 +151,14 @@
                 </div>
             </div>
 
+            <!-- COLUNA DIREITA -->
             <div class="game-right">
                 <div class="log-panel">
                     <h3>Log da Partida</h3>
                     <div id="game-log" class="log-entries"></div>
                 </div>
             </div>
+
         </div>
     </div>
 
@@ -153,7 +170,12 @@
                 <p class="subtitle" id="gameover-subtitle"></p>
             </div>
             <div id="gameover-stats" class="gameover-stats"></div>
-            <button id="btn-back-menu" class="btn btn-primary">Voltar ao Menu</button>
+
+            <div class="gameover-buttons">
+                <button id="btn-rematch" class="btn btn-primary">Jogar Novamente</button>
+                <button id="btn-back-menu" class="btn btn-secondary">Voltar ao Menu</button>
+            </div>
+            <p id="rematch-status" class="status-text hidden"></p>
         </div>
     </div>
 
