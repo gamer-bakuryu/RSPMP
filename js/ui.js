@@ -1,157 +1,127 @@
-const UI = (() => {
-    function showScreen(screenId) {
-        document.querySelectorAll('.screen').forEach(s => {
-            s.classList.remove('active');
-            s.classList.add('hidden');
-        });
-        const screen = document.getElementById(screenId);
-        if (screen) {
-            screen.classList.remove('hidden');
-            screen.classList.add('active');
+var UI = (function () {
+
+    function showScreen(id) {
+        var all = document.querySelectorAll('.screen');
+        for (var i = 0; i < all.length; i++) {
+            all[i].classList.remove('active');
+            all[i].classList.add('hidden');
         }
+        var s = document.getElementById(id);
+        if (s) { s.classList.remove('hidden'); s.classList.add('active'); }
+        Debug.render();
     }
 
-    function getPlayerName() {
-        return document.getElementById('player-name').value.trim();
+    /* ---- NOME / MENU ---- */
+    function getPlayerName() { return document.getElementById('player-name').value.trim(); }
+    function setPlayerNameInput(n) { document.getElementById('player-name').value = n || ''; }
+    function setDisplayName(n) { document.getElementById('display-name').textContent = n; }
+
+    /* ---- HOST ---- */
+    function setRoomCode(c) { document.getElementById('room-code-display').textContent = c; }
+    function setHostStatus(t) {
+        var e = document.getElementById('host-status-text');
+        if (e) e.textContent = t;
+    }
+    function getRoomCodeForLink(c) {
+        var base = window.location.href.split('?')[0].split('#')[0];
+        return base + '?room=' + c;
     }
 
-    function setPlayerNameInput(name) {
-        document.getElementById('player-name').value = name || '';
+    /* ---- JOIN ---- */
+    function getJoinCode() { return document.getElementById('join-code').value.trim().toUpperCase(); }
+    function setJoinCode(c) { document.getElementById('join-code').value = c || ''; }
+    function showJoinError(m) {
+        var e = document.getElementById('join-error');
+        e.textContent = m; e.classList.remove('hidden');
+        document.getElementById('join-status').classList.add('hidden');
     }
-
-    function setDisplayName(name) {
-        document.getElementById('display-name').textContent = name;
-    }
-
-    function setRoomCode(code) {
-        document.getElementById('room-code-display').textContent = code;
-    }
-
-    function setHostStatus(text) {
-        const el = document.getElementById('host-status-text');
-        if (el) el.textContent = text;
-    }
-
-    function getRoomCodeForLink(code) {
-        const base = window.location.href.split('?')[0].split('#')[0];
-        return base + '?room=' + code;
-    }
-
-    function getJoinCode() {
-        return document.getElementById('join-code').value.trim().toUpperCase();
-    }
-
-    function setJoinCode(code) {
-        document.getElementById('join-code').value = code || '';
-    }
-
-    function showJoinError(msg) {
-        const el = document.getElementById('join-error');
-        el.textContent = msg;
-        el.classList.remove('hidden');
-        const status = document.getElementById('join-status');
-        if (status) status.classList.add('hidden');
-    }
-
-    function hideJoinError() {
-        document.getElementById('join-error').classList.add('hidden');
-    }
-
-    function showJoinStatus(msg) {
-        const el = document.getElementById('join-status');
-        if (el) {
-            el.textContent = msg;
-            el.classList.remove('hidden');
-            el.style.color = '#888';
-        }
+    function hideJoinError() { document.getElementById('join-error').classList.add('hidden'); }
+    function showJoinStatus(m) {
+        var e = document.getElementById('join-status');
+        e.textContent = m; e.classList.remove('hidden');
         hideJoinError();
     }
+    function hideJoinStatus() { document.getElementById('join-status').classList.add('hidden'); }
 
-    function hideJoinStatus() {
-        const el = document.getElementById('join-status');
-        if (el) el.classList.add('hidden');
+    /* ---- PAINEL DE CONEXÃO (esquerda) ---- */
+    function setConnRoom(code) {
+        var e = document.getElementById('conn-room-code');
+        if (e) e.textContent = code || '—';
+    }
+    function setConnStatus(online) {
+        var d = document.getElementById('conn-dot');
+        if (!d) return;
+        d.className = 'conn-dot ' + (online ? 'online' : 'offline');
     }
 
-    function initGameUI(myName, opponentName) {
+    /* ---- JOGO ---- */
+    function initGameUI(myName, oppName, matchNumber) {
         document.getElementById('score-name-me').textContent = myName;
-        document.getElementById('score-name-opponent').textContent = opponentName;
+        document.getElementById('score-name-opponent').textContent = oppName;
         document.getElementById('score-me').textContent = '0';
         document.getElementById('score-opponent').textContent = '0';
         document.getElementById('battle-label-me').textContent = myName;
-        document.getElementById('battle-label-opponent').textContent = opponentName;
+        document.getElementById('battle-label-opponent').textContent = oppName;
         document.getElementById('battle-symbol-me').textContent = '?';
         document.getElementById('battle-symbol-opponent').textContent = '?';
-        document.getElementById('game-log').innerHTML = '';
-        setGameStatus('Escolha uma carta para jogar', '');
         document.getElementById('battle-me').className = 'battle-card';
         document.getElementById('battle-opponent').className = 'battle-card';
+        document.getElementById('game-log').innerHTML = '';
+        setGameStatus('Escolha uma carta para jogar', '');
+
+        if (matchNumber && matchNumber > 1) {
+            addSystemLog('— Partida #' + matchNumber + ' —');
+        }
     }
 
     function renderHand(hand, selectedIndex, onSelect) {
-        const container = document.getElementById('hand-cards');
-        container.innerHTML = '';
+        var box = document.getElementById('hand-cards');
+        box.innerHTML = '';
 
-        hand.forEach((card, index) => {
-            const el = document.createElement('div');
+        hand.forEach(function (card, i) {
+            var el = document.createElement('div');
             el.className = 'card';
+            if (card.used) el.classList.add('used');
+            else if (selectedIndex === i) el.classList.add('selected');
 
-            if (card.used) {
-                el.classList.add('used');
-            } else if (selectedIndex === index) {
-                el.classList.add('selected');
-            }
-
-            const symbol = Game.SYMBOLS[card.type];
-            el.innerHTML =
-                '<span>' + symbol.emoji + '</span>' +
-                '<span class="card-label">' + symbol.name + '</span>';
+            var s = Game.SYMBOLS[card.type];
+            el.innerHTML = '<span>' + s.emoji + '</span>' +
+                           '<span class="card-label">' + s.name + '</span>';
 
             if (!card.used) {
-                el.addEventListener('click', () => onSelect(index));
+                el.addEventListener('click', function () { onSelect(i); });
             }
-
-            container.appendChild(el);
+            box.appendChild(el);
         });
     }
 
     function disableAllCards() {
-        document.querySelectorAll('.card').forEach(c => {
-            c.classList.add('disabled');
-        });
+        var cards = document.querySelectorAll('.card');
+        for (var i = 0; i < cards.length; i++) cards[i].classList.add('disabled');
     }
 
-    function updateScores(myScore, oppScore) {
-        document.getElementById('score-me').textContent = myScore;
-        document.getElementById('score-opponent').textContent = oppScore;
+    function updateScores(a, b) {
+        document.getElementById('score-me').textContent = a;
+        document.getElementById('score-opponent').textContent = b;
     }
 
     function setGameStatus(text, type) {
-        const el = document.getElementById('game-status');
-        el.textContent = text;
-        el.className = 'game-status';
-        if (type) el.classList.add('highlight-' + type);
+        var e = document.getElementById('game-status');
+        e.textContent = text;
+        e.className = 'game-status';
+        if (type) e.classList.add('highlight-' + type);
     }
 
-    function showBattleResult(mySymbol, oppSymbol, result) {
-        const myBattle = document.getElementById('battle-me');
-        const oppBattle = document.getElementById('battle-opponent');
-
-        document.getElementById('battle-symbol-me').textContent = Game.SYMBOLS[mySymbol].emoji;
-        document.getElementById('battle-symbol-opponent').textContent = Game.SYMBOLS[oppSymbol].emoji;
-
-        myBattle.className = 'battle-card';
-        oppBattle.className = 'battle-card';
-
-        if (result === 'win') {
-            myBattle.classList.add('win');
-            oppBattle.classList.add('lose');
-        } else if (result === 'lose') {
-            myBattle.classList.add('lose');
-            oppBattle.classList.add('win');
-        } else {
-            myBattle.classList.add('draw');
-            oppBattle.classList.add('draw');
-        }
+    function showBattleResult(mine, opp, result) {
+        var a = document.getElementById('battle-me');
+        var b = document.getElementById('battle-opponent');
+        document.getElementById('battle-symbol-me').textContent = Game.SYMBOLS[mine].emoji;
+        document.getElementById('battle-symbol-opponent').textContent = Game.SYMBOLS[opp].emoji;
+        a.className = 'battle-card';
+        b.className = 'battle-card';
+        if (result === 'win') { a.classList.add('win'); b.classList.add('lose'); }
+        else if (result === 'lose') { a.classList.add('lose'); b.classList.add('win'); }
+        else { a.classList.add('draw'); b.classList.add('draw'); }
     }
 
     function resetBattle() {
@@ -161,71 +131,106 @@ const UI = (() => {
         document.getElementById('battle-opponent').className = 'battle-card';
     }
 
-    function addLogEntry(roundNum, text, result) {
-        const container = document.getElementById('game-log');
-        const entry = document.createElement('div');
-        entry.className = 'log-entry ' + result;
-        entry.innerHTML = '<span class="round-num">Rodada ' + roundNum + '</span><br>' + text;
-        container.appendChild(entry);
-        container.scrollTop = container.scrollHeight;
+    function addLogEntry(round, text, result) {
+        var box = document.getElementById('game-log');
+        var e = document.createElement('div');
+        e.className = 'log-entry ' + result;
+        e.innerHTML = '<span class="round-num">Rodada ' + round + '</span><br>' + text;
+        box.appendChild(e);
+        box.scrollTop = box.scrollHeight;
     }
 
-    function showExitModal() {
-        document.getElementById('exit-modal').classList.remove('hidden');
+    function addSystemLog(text) {
+        var box = document.getElementById('game-log');
+        var e = document.createElement('div');
+        e.className = 'log-entry system';
+        e.textContent = text;
+        box.appendChild(e);
+        box.scrollTop = box.scrollHeight;
     }
 
-    function hideExitModal() {
-        document.getElementById('exit-modal').classList.add('hidden');
-    }
+    /* ---- MODAL ---- */
+    function showExitModal() { document.getElementById('exit-modal').classList.remove('hidden'); }
+    function hideExitModal() { document.getElementById('exit-modal').classList.add('hidden'); }
 
-    function showGameOver(winner, myName, oppName, myScore, oppScore, rounds) {
-        let title, subtitle;
-
+    /* ---- GAME OVER ---- */
+    function showGameOver(winner, myName, oppName, myScore, oppScore, rounds, canRematch) {
+        var title, sub;
         if (winner === 'me') {
             title = '🏆 Vitória!';
-            subtitle = 'Parabéns, ' + myName + '! Você venceu a partida!';
+            sub = 'Parabéns, ' + myName + '! Você venceu a partida!';
         } else if (winner === 'opponent') {
             title = '😞 Derrota';
-            subtitle = oppName + ' venceu a partida.';
+            sub = oppName + ' venceu a partida.';
         } else {
             title = 'Partida Encerrada';
-            subtitle = 'A partida foi finalizada.';
+            sub = 'A partida foi finalizada.';
         }
 
         document.getElementById('gameover-title').textContent = title;
-        document.getElementById('gameover-subtitle').textContent = subtitle;
+        document.getElementById('gameover-subtitle').textContent = sub;
         document.getElementById('gameover-stats').innerHTML =
             '<p>' + myName + ': <strong>' + myScore + '</strong> pontos</p>' +
             '<p>' + oppName + ': <strong>' + oppScore + '</strong> pontos</p>' +
-            '<p style="color: var(--text-dim); font-size: 0.9rem; margin-top: 8px;">Total de rodadas: ' + rounds + '</p>';
+            '<p style="color:var(--text-dim);font-size:0.9rem;margin-top:8px;">Total de rodadas: ' + rounds + '</p>';
 
+        var btn = document.getElementById('btn-rematch');
+        btn.disabled = !canRematch;
+        btn.textContent = 'Jogar Novamente';
+        btn.style.display = canRematch ? '' : 'none';
+
+        hideRematchStatus();
         showScreen('screen-gameover');
     }
 
+    function setRematchStatus(msg, type) {
+        var e = document.getElementById('rematch-status');
+        e.textContent = msg;
+        e.className = 'status-text' + (type ? ' ' + type : '');
+    }
+    function hideRematchStatus() {
+        document.getElementById('rematch-status').className = 'status-text hidden';
+    }
+    function setRematchButton(text, disabled) {
+        var b = document.getElementById('btn-rematch');
+        b.textContent = text;
+        b.disabled = !!disabled;
+    }
+    function hideRematchButton() {
+        document.getElementById('btn-rematch').style.display = 'none';
+    }
+
     return {
-        showScreen,
-        getPlayerName,
-        setPlayerNameInput,
-        setDisplayName,
-        setRoomCode,
-        setHostStatus,
-        getRoomCodeForLink,
-        getJoinCode,
-        setJoinCode,
-        showJoinError,
-        hideJoinError,
-        showJoinStatus,
-        hideJoinStatus,
-        initGameUI,
-        renderHand,
-        disableAllCards,
-        updateScores,
-        setGameStatus,
-        showBattleResult,
-        resetBattle,
-        addLogEntry,
-        showExitModal,
-        hideExitModal,
-        showGameOver
+        showScreen: showScreen,
+        getPlayerName: getPlayerName,
+        setPlayerNameInput: setPlayerNameInput,
+        setDisplayName: setDisplayName,
+        setRoomCode: setRoomCode,
+        setHostStatus: setHostStatus,
+        getRoomCodeForLink: getRoomCodeForLink,
+        getJoinCode: getJoinCode,
+        setJoinCode: setJoinCode,
+        showJoinError: showJoinError,
+        hideJoinError: hideJoinError,
+        showJoinStatus: showJoinStatus,
+        hideJoinStatus: hideJoinStatus,
+        setConnRoom: setConnRoom,
+        setConnStatus: setConnStatus,
+        initGameUI: initGameUI,
+        renderHand: renderHand,
+        disableAllCards: disableAllCards,
+        updateScores: updateScores,
+        setGameStatus: setGameStatus,
+        showBattleResult: showBattleResult,
+        resetBattle: resetBattle,
+        addLogEntry: addLogEntry,
+        addSystemLog: addSystemLog,
+        showExitModal: showExitModal,
+        hideExitModal: hideExitModal,
+        showGameOver: showGameOver,
+        setRematchStatus: setRematchStatus,
+        hideRematchStatus: hideRematchStatus,
+        setRematchButton: setRematchButton,
+        hideRematchButton: hideRematchButton
     };
 })();
