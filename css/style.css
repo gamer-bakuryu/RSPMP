@@ -706,4 +706,19 @@ body {
     .score-value {
         font-size: 1.6rem;
     }
+   /* ---- STATUS TEXT (JOIN SCREEN) ---- */
+.status-text {
+    font-size: 0.9rem;
+    margin-top: 12px;
+    color: var(--text-secondary);
+}
+
+.status-text.hidden {
+    display: none;
+}
+
+/* ---- DISABLED BUTTON ---- */
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
