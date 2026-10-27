@@ -10,6 +10,12 @@
     var gameStarted = false;
     var hsTimer = null;
 
+    // revanche
+    var iWantRematch = false;
+    var oppWantsRematch = false;
+    var atGameOver = false;
+    var selfClosed = false;
+
     /* ---------- INIT ---------- */
     function init() {
         var saved = localStorage.getItem('rspmp_player_name');
@@ -25,6 +31,7 @@
         Connection.onMessage(onMessage);
         Connection.onClose(onClose);
 
+        UI.setConnStatus(false);
         Debug.log('APP >> iniciado');
     }
 
@@ -52,11 +59,13 @@
         });
         document.getElementById('btn-copy-code').addEventListener('click', onCopyCode);
         document.getElementById('btn-cancel-host').addEventListener('click', function () {
-            stopHandshake(); Connection.close(); UI.showScreen('screen-menu');
+            leaveEverything();
+            UI.showScreen('screen-menu');
         });
         document.getElementById('btn-join-confirm').addEventListener('click', onJoinConfirm);
         document.getElementById('btn-join-back').addEventListener('click', function () {
-            stopHandshake(); Connection.close(); UI.showScreen('screen-menu');
+            leaveEverything();
+            UI.showScreen('screen-menu');
         });
         document.getElementById('join-code').addEventListener('keypress', function (e) {
             if (e.key === 'Enter') onJoinConfirm();
@@ -65,9 +74,8 @@
             UI.showExitModal();
         });
         document.getElementById('exit-confirm').addEventListener('click', onExitConfirm);
-        document.getElementById('exit-cancel').addEventListener('click', function () {
-            UI.hideExitModal();
-        });
+        document.getElementById('exit-cancel').addEventListener('click', UI.hideExitModal);
+        document.getElementById('btn-rematch').addEventListener('click', onRematchClick);
         document.getElementById('btn-back-menu').addEventListener('click', onBackToMenu);
     }
 
@@ -93,6 +101,7 @@
     function onHost() {
         isHost = true;
         gameStarted = false;
+        selfClosed = false;
         stopHandshake();
 
         UI.setRoomCode('...');
@@ -103,10 +112,10 @@
             .then(function (code) {
                 currentRoomCode = code;
                 UI.setRoomCode(code);
-                Debug.log('APP >> sala criada: ' + code);
+                UI.setConnRoom(code);
             })
             .catch(function (err) {
-                Debug.log('APP >> erro host: ' + err.message);
+                Debug.log('APP >> ERRO host: ' + err.message);
                 alert('Erro ao criar sala: ' + err.message);
                 UI.showScreen('screen-menu');
             });
@@ -120,11 +129,11 @@
             setTimeout(function () { btn.textContent = 'Copiar Link'; }, 2000);
         }
         if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(link).then(ok).catch(function () { fb(link, ok); });
-        } else { fb(link, ok); }
+            navigator.clipboard.writeText(link).then(ok).catch(function () { fallback(link, ok); });
+        } else { fallback(link, ok); }
     }
 
-    function fb(text, ok) {
+    function fallback(text, ok) {
         var ta = document.createElement('textarea');
         ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px';
         document.body.appendChild(ta); ta.select();
@@ -146,7 +155,9 @@
         UI.hideJoinError();
         isHost = false;
         gameStarted = false;
+        selfClosed = false;
         currentRoomCode = code;
+        UI.setConnRoom(code);
         stopHandshake();
 
         var btn = document.getElementById('btn-join-confirm');
@@ -154,11 +165,9 @@
         btn.textContent = 'Conectando...';
 
         Connection.join(code, function (s) { UI.showJoinStatus(s); })
-            .then(function () {
-                UI.showJoinStatus('Conectado! Sincronizando...');
-            })
+            .then(function () { UI.showJoinStatus('Conectado! Sincronizando...'); })
             .catch(function (err) {
-                Debug.log('APP >> erro join: ' + err.message);
+                Debug.log('APP >> ERRO join: ' + err.message);
                 UI.showJoinError(err.message);
                 UI.hideJoinStatus();
             })
@@ -168,23 +177,15 @@
             });
     }
 
-    /* ---------- HANDSHAKE À PROVA DE FALHAS ----------
-       Ambos os lados mandam "hello" repetidamente até
-       receberem algo do outro. Quem recebe "hello"
-       responde "hello_ack" e inicia o jogo.
-    -------------------------------------------------- */
+    /* ---------- HANDSHAKE ---------- */
     function startHandshake() {
         stopHandshake();
         var n = 0;
-        Debug.log('HS >> iniciando handshake');
+        Debug.log('HS >> handshake iniciado');
         Connection.send({ type: 'hello', name: playerName });
         hsTimer = setInterval(function () {
             n++;
-            if (gameStarted || n > 30) {
-                Debug.log('HS >> parando (started=' + gameStarted + ', n=' + n + ')');
-                stopHandshake();
-                return;
-            }
+            if (gameStarted || n > 30) { stopHandshake(); return; }
             Connection.send({ type: 'hello', name: playerName });
         }, 700);
     }
@@ -195,43 +196,62 @@
 
     /* ---------- CALLBACKS ---------- */
     function onOpen() {
-        Debug.log('APP >> canal aberto (isHost=' + isHost + ')');
+        UI.setConnStatus(true);
         startHandshake();
     }
 
     function onMessage(data) {
         if (!data || !data.type) return;
 
-        if (data.type === 'hello') {
-            Connection.send({ type: 'hello_ack', name: playerName });
-            stopHandshake();
-            startGame(data.name);
-        } else if (data.type === 'hello_ack') {
-            stopHandshake();
-            startGame(data.name);
-        } else if (data.type === 'choice') {
-            handleOpponentChoice(data);
-        } else if (data.type === 'exit') {
-            handleOpponentExit();
+        switch (data.type) {
+            case 'hello':
+                Connection.send({ type: 'hello_ack', name: playerName });
+                stopHandshake();
+                startGame(data.name);
+                break;
+            case 'hello_ack':
+                stopHandshake();
+                startGame(data.name);
+                break;
+            case 'choice':
+                handleOpponentChoice(data);
+                break;
+            case 'rematch':
+                handleRematchRequest();
+                break;
+            case 'exit':
+                handleOpponentExit();
+                break;
         }
     }
 
     function onClose() {
-        Debug.log('APP >> conexao fechada (started=' + gameStarted + ')');
+        UI.setConnStatus(false);
         stopHandshake();
-        if (gameStarted && !Game.getState().gameOver) handleOpponentExit();
+
+        if (selfClosed) return;
+
+        if (gameStarted && !Game.getState().gameOver) {
+            handleOpponentExit();
+        } else if (atGameOver) {
+            UI.hideRematchButton();
+            UI.setRematchStatus('O oponente saiu da sala.', 'bad');
+        }
     }
 
-    /* ---------- START GAME ---------- */
+    /* ---------- START / RESTART ---------- */
     function startGame(opponentName) {
         if (gameStarted) return;
         gameStarted = true;
+        atGameOver = false;
         opponentName = opponentName || 'Oponente';
 
-        Debug.log('APP >> INICIANDO JOGO: ' + playerName + ' vs ' + opponentName);
+        Debug.log('APP >> INICIANDO: ' + playerName + ' vs ' + opponentName);
 
         Game.init(playerName, opponentName, isHost);
-        UI.initGameUI(playerName, opponentName);
+        UI.setConnRoom(currentRoomCode);
+        UI.setConnStatus(true);
+        UI.initGameUI(playerName, opponentName, 1);
         UI.renderHand(Game.getState().myHand, null, onCardSelect);
 
         myChoiceType = null;
@@ -239,6 +259,49 @@
         roundInProgress = false;
 
         UI.showScreen('screen-game');
+    }
+
+    function doRematch() {
+        iWantRematch = false;
+        oppWantsRematch = false;
+        atGameOver = false;
+        gameStarted = true;
+
+        var s = Game.reset();
+        Debug.log('APP >> REVANCHE partida #' + s.matchNumber);
+
+        UI.initGameUI(s.myName, s.opponentName, s.matchNumber);
+        UI.renderHand(s.myHand, null, onCardSelect);
+
+        myChoiceType = null;
+        opponentChoiceType = null;
+        roundInProgress = false;
+
+        UI.showScreen('screen-game');
+    }
+
+    function onRematchClick() {
+        if (!Connection.isConnected()) {
+            UI.setRematchStatus('Conexão perdida. Volte ao menu.', 'bad');
+            UI.hideRematchButton();
+            return;
+        }
+        iWantRematch = true;
+        Connection.send({ type: 'rematch' });
+        UI.setRematchButton('Aguardando...', true);
+
+        if (oppWantsRematch) doRematch();
+        else UI.setRematchStatus('Pedido enviado. Aguardando o oponente...', 'warn');
+    }
+
+    function handleRematchRequest() {
+        oppWantsRematch = true;
+        if (iWantRematch) {
+            doRematch();
+        } else if (atGameOver) {
+            UI.setRematchStatus('O oponente quer jogar novamente!', 'ok');
+            UI.setRematchButton('Aceitar Revanche', false);
+        }
     }
 
     /* ---------- CARTAS ---------- */
@@ -287,9 +350,11 @@
         UI.updateScores(r.myScore, r.oppScore);
 
         if (r.result === 'win') {
-            UI.setGameStatus('Você venceu a rodada! (' + Game.SYMBOLS[r.mySymbol].name + ' > ' + Game.SYMBOLS[r.oppSymbol].name + ')', 'win');
+            UI.setGameStatus('Você venceu a rodada! (' + Game.SYMBOLS[r.mySymbol].name +
+                ' > ' + Game.SYMBOLS[r.oppSymbol].name + ')', 'win');
         } else if (r.result === 'lose') {
-            UI.setGameStatus('Você perdeu a rodada! (' + Game.SYMBOLS[r.oppSymbol].name + ' > ' + Game.SYMBOLS[r.mySymbol].name + ')', 'lose');
+            UI.setGameStatus('Você perdeu a rodada! (' + Game.SYMBOLS[r.oppSymbol].name +
+                ' > ' + Game.SYMBOLS[r.mySymbol].name + ')', 'lose');
         } else {
             UI.setGameStatus('Empate! Ambos jogaram ' + Game.SYMBOLS[r.mySymbol].name, 'draw');
         }
@@ -300,8 +365,13 @@
             setTimeout(function () {
                 var s = Game.getState();
                 gameStarted = false;
-                UI.showGameOver(r.winner, s.myName, s.opponentName, s.myScore, s.opponentScore, s.roundNumber);
-                Connection.close();
+                atGameOver = true;
+                iWantRematch = false;
+                oppWantsRematch = false;
+
+                UI.showGameOver(r.winner, s.myName, s.opponentName,
+                    s.myScore, s.opponentScore, s.roundNumber,
+                    Connection.isConnected());
             }, 2500);
             return;
         }
@@ -327,35 +397,61 @@
         }, 2200);
     }
 
-    /* ---------- SAIR ---------- */
+    /* ---------- SAÍDA ---------- */
     function onExitConfirm() {
         UI.hideExitModal();
         Connection.send({ type: 'exit' });
+
         var s = Game.getState();
         Game.forceEnd();
         gameStarted = false;
+        atGameOver = true;
+        selfClosed = true;
         stopHandshake();
-        setTimeout(function () { Connection.close(); }, 200);
-        UI.showGameOver('cancelled', s.myName, s.opponentName, s.myScore, s.opponentScore, s.roundNumber);
+
+        setTimeout(function () {
+            Connection.close();
+            UI.setConnStatus(false);
+        }, 250);
+
+        UI.showGameOver('cancelled', s.myName, s.opponentName,
+            s.myScore, s.opponentScore, s.roundNumber, false);
+        UI.setRematchStatus('Você encerrou a sala.', 'bad');
     }
 
     function handleOpponentExit() {
         Game.forceEnd();
         UI.hideExitModal();
+
         var s = Game.getState();
         gameStarted = false;
+        atGameOver = true;
+        selfClosed = true;
         stopHandshake();
         Connection.close();
+        UI.setConnStatus(false);
+
         var w = 'cancelled';
         if (s.myScore > s.opponentScore) w = 'me';
         else if (s.opponentScore > s.myScore) w = 'opponent';
-        UI.showGameOver(w, s.myName, s.opponentName, s.myScore, s.opponentScore, s.roundNumber);
+
+        UI.showGameOver(w, s.myName, s.opponentName,
+            s.myScore, s.opponentScore, s.roundNumber, false);
+        UI.setRematchStatus('O oponente saiu da sala.', 'bad');
+    }
+
+    function leaveEverything() {
+        selfClosed = true;
+        stopHandshake();
+        Connection.close();
+        UI.setConnStatus(false);
+        UI.setConnRoom('—');
+        gameStarted = false;
+        atGameOver = false;
     }
 
     function onBackToMenu() {
-        stopHandshake();
-        Connection.close();
-        gameStarted = false;
+        leaveEverything();
         var url = window.location.href.split('?')[0].split('#')[0];
         window.history.replaceState({}, '', url);
         UI.showScreen('screen-menu');
