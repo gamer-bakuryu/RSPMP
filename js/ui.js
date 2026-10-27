@@ -1,36 +1,35 @@
-/*  ============================================
-    UI MODULE
-    Handles all DOM interactions
-    ============================================ */
-
 const UI = (() => {
-    // ---- SCREEN MANAGEMENT ----
     function showScreen(screenId) {
         document.querySelectorAll('.screen').forEach(s => {
             s.classList.remove('active');
             s.classList.add('hidden');
         });
         const screen = document.getElementById(screenId);
-        screen.classList.remove('hidden');
-        screen.classList.add('active');
+        if (screen) {
+            screen.classList.remove('hidden');
+            screen.classList.add('active');
+        }
     }
 
-    // ---- NAME SCREEN ----
     function getPlayerName() {
         return document.getElementById('player-name').value.trim();
     }
 
     function setPlayerNameInput(name) {
-        document.getElementById('player-name').value = name;
+        document.getElementById('player-name').value = name || '';
     }
 
     function setDisplayName(name) {
         document.getElementById('display-name').textContent = name;
     }
 
-    // ---- HOST SCREEN ----
     function setRoomCode(code) {
         document.getElementById('room-code-display').textContent = code;
+    }
+
+    function setHostStatus(text) {
+        const el = document.getElementById('host-status-text');
+        if (el) el.textContent = text;
     }
 
     function getRoomCodeForLink(code) {
@@ -38,26 +37,41 @@ const UI = (() => {
         return base + '?room=' + code;
     }
 
-    // ---- JOIN SCREEN ----
     function getJoinCode() {
         return document.getElementById('join-code').value.trim().toUpperCase();
     }
 
     function setJoinCode(code) {
-        document.getElementById('join-code').value = code;
+        document.getElementById('join-code').value = code || '';
     }
 
     function showJoinError(msg) {
         const el = document.getElementById('join-error');
         el.textContent = msg;
         el.classList.remove('hidden');
+        const status = document.getElementById('join-status');
+        if (status) status.classList.add('hidden');
     }
 
     function hideJoinError() {
         document.getElementById('join-error').classList.add('hidden');
     }
 
-    // ---- GAME SCREEN ----
+    function showJoinStatus(msg) {
+        const el = document.getElementById('join-status');
+        if (el) {
+            el.textContent = msg;
+            el.classList.remove('hidden');
+            el.style.color = '#888';
+        }
+        hideJoinError();
+    }
+
+    function hideJoinStatus() {
+        const el = document.getElementById('join-status');
+        if (el) el.classList.add('hidden');
+    }
+
     function initGameUI(myName, opponentName) {
         document.getElementById('score-name-me').textContent = myName;
         document.getElementById('score-name-opponent').textContent = opponentName;
@@ -69,8 +83,6 @@ const UI = (() => {
         document.getElementById('battle-symbol-opponent').textContent = '?';
         document.getElementById('game-log').innerHTML = '';
         setGameStatus('Escolha uma carta para jogar', '');
-
-        // Reset battle card styles
         document.getElementById('battle-me').className = 'battle-card';
         document.getElementById('battle-opponent').className = 'battle-card';
     }
@@ -90,10 +102,9 @@ const UI = (() => {
             }
 
             const symbol = Game.SYMBOLS[card.type];
-            el.innerHTML = `
-                <span>${symbol.emoji}</span>
-                <span class="card-label">${symbol.name}</span>
-            `;
+            el.innerHTML =
+                '<span>' + symbol.emoji + '</span>' +
+                '<span class="card-label">' + symbol.name + '</span>';
 
             if (!card.used) {
                 el.addEventListener('click', () => onSelect(index));
@@ -124,13 +135,10 @@ const UI = (() => {
     function showBattleResult(mySymbol, oppSymbol, result) {
         const myBattle = document.getElementById('battle-me');
         const oppBattle = document.getElementById('battle-opponent');
-        const mySymbolEl = document.getElementById('battle-symbol-me');
-        const oppSymbolEl = document.getElementById('battle-symbol-opponent');
 
-        mySymbolEl.textContent = Game.SYMBOLS[mySymbol].emoji;
-        oppSymbolEl.textContent = Game.SYMBOLS[oppSymbol].emoji;
+        document.getElementById('battle-symbol-me').textContent = Game.SYMBOLS[mySymbol].emoji;
+        document.getElementById('battle-symbol-opponent').textContent = Game.SYMBOLS[oppSymbol].emoji;
 
-        // Reset classes
         myBattle.className = 'battle-card';
         oppBattle.className = 'battle-card';
 
@@ -157,12 +165,11 @@ const UI = (() => {
         const container = document.getElementById('game-log');
         const entry = document.createElement('div');
         entry.className = 'log-entry ' + result;
-        entry.innerHTML = `<span class="round-num">Rodada ${roundNum}</span><br>${text}`;
+        entry.innerHTML = '<span class="round-num">Rodada ' + roundNum + '</span><br>' + text;
         container.appendChild(entry);
         container.scrollTop = container.scrollHeight;
     }
 
-    // ---- EXIT MODAL ----
     function showExitModal() {
         document.getElementById('exit-modal').classList.remove('hidden');
     }
@@ -171,16 +178,15 @@ const UI = (() => {
         document.getElementById('exit-modal').classList.add('hidden');
     }
 
-    // ---- GAME OVER SCREEN ----
     function showGameOver(winner, myName, oppName, myScore, oppScore, rounds) {
         let title, subtitle;
 
         if (winner === 'me') {
             title = '🏆 Vitória!';
-            subtitle = `Parabéns, ${myName}! Você venceu a partida!`;
+            subtitle = 'Parabéns, ' + myName + '! Você venceu a partida!';
         } else if (winner === 'opponent') {
             title = '😞 Derrota';
-            subtitle = `${oppName} venceu a partida.`;
+            subtitle = oppName + ' venceu a partida.';
         } else {
             title = 'Partida Encerrada';
             subtitle = 'A partida foi finalizada.';
@@ -188,11 +194,10 @@ const UI = (() => {
 
         document.getElementById('gameover-title').textContent = title;
         document.getElementById('gameover-subtitle').textContent = subtitle;
-        document.getElementById('gameover-stats').innerHTML = `
-            <p>${myName}: <strong>${myScore}</strong> pontos</p>
-            <p>${oppName}: <strong>${oppScore}</strong> pontos</p>
-            <p style="color: var(--text-dim); font-size: 0.9rem; margin-top: 8px;">Total de rodadas: ${rounds}</p>
-        `;
+        document.getElementById('gameover-stats').innerHTML =
+            '<p>' + myName + ': <strong>' + myScore + '</strong> pontos</p>' +
+            '<p>' + oppName + ': <strong>' + oppScore + '</strong> pontos</p>' +
+            '<p style="color: var(--text-dim); font-size: 0.9rem; margin-top: 8px;">Total de rodadas: ' + rounds + '</p>';
 
         showScreen('screen-gameover');
     }
@@ -203,11 +208,14 @@ const UI = (() => {
         setPlayerNameInput,
         setDisplayName,
         setRoomCode,
+        setHostStatus,
         getRoomCodeForLink,
         getJoinCode,
         setJoinCode,
         showJoinError,
         hideJoinError,
+        showJoinStatus,
+        hideJoinStatus,
         initGameUI,
         renderHand,
         disableAllCards,
