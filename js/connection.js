@@ -1,41 +1,20 @@
 /*  ============================================
-    CONNECTION MODULE
-    Pure WebRTC with manual signaling via
-    copy-paste codes (base64 encoded SDP).
-    No external servers needed.
+    CONNECTION MODULE (PeerJS version)
+    Uses PeerJS public signaling server (free),
+    but all game data flows peer-to-peer directly.
     ============================================ */
 
 const Connection = (() => {
-    let peerConnection = null;
-    let dataChannel = null;
+    let peer = null;
+    let conn = null;
     let onMessageCallback = null;
     let onOpenCallback = null;
     let onCloseCallback = null;
     let isHost = false;
-    let pollInterval = null;
-    let roomId = null;
+    let myRoomId = null;
 
-    // ICE servers (public free STUN)
-    const ICE_SERVERS = {
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' }
-        ]
-    };
-
-    // ---- ENCODE/DECODE for signaling via localStorage ----
-    function encode(obj) {
-        return btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
-    }
-
-    function decode(str) {
-        try {
-            return JSON.parse(decodeURIComponent(escape(atob(str))));
-        } catch (e) {
-            return null;
-        }
-    }
+    // Prefix to avoid ID collisions with other apps using PeerJS cloud
+    const ID_PREFIX = 'rspmp-';
 
     function generateRoomId() {
         const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -46,191 +25,187 @@ const Connection = (() => {
         return result;
     }
 
-    // ---- SETUP PEER CONNECTION ----
-    function setupPeerConnection() {
-        peerConnection = new RTCPeerConnection(ICE_SERVERS);
+    function setupConnection(connection) {
+        conn = connection;
 
-        peerConnection.oniceconnectionstatechange = () => {
-            const state = peerConnection.iceConnectionState;
-            if (state === 'disconnected' || state === 'failed' || state === 'closed') {
-                if (onCloseCallback) onCloseCallback();
-            }
-        };
-    }
-
-    function setupDataChannel(channel) {
-        dataChannel = channel;
-
-        dataChannel.onopen = () => {
-            // Clean up signaling data
-            clearSignalingData();
-            if (pollInterval) {
-                clearInterval(pollInterval);
-                pollInterval = null;
-            }
+        conn.on('open', () => {
             if (onOpenCallback) onOpenCallback();
-        };
+        });
 
-        dataChannel.onclose = () => {
-            if (onCloseCallback) onCloseCallback();
-        };
-
-        dataChannel.onmessage = (event) => {
-            const data = JSON.parse(event.data);
+        conn.on('data', (data) => {
             if (onMessageCallback) onMessageCallback(data);
-        };
-    }
+        });
 
-    // ---- SIGNALING VIA LOCALSTORAGE (same browser tabs) ----
-    // For cross-device, user must copy/paste codes manually.
-    // We use localStorage as a simple "signaling server" for same-origin.
+        conn.on('close', () => {
+            if (onCloseCallback) onCloseCallback();
+        });
 
-    function clearSignalingData() {
-        if (roomId) {
-            localStorage.removeItem('rspmp_room_' + roomId + '_offer');
-            localStorage.removeItem('rspmp_room_' + roomId + '_answer');
-            localStorage.removeItem('rspmp_room_' + roomId + '_host_candidates');
-            localStorage.removeItem('rspmp_room_' + roomId + '_guest_candidates');
-        }
+        conn.on('error', (err) => {
+            console.error('Connection error:', err);
+            if (onCloseCallback) onCloseCallback();
+        });
     }
 
     // ---- HOST ----
-    async function host() {
-        isHost = true;
-        roomId = generateRoomId();
+    function host() {
+        return new Promise((resolve, reject) => {
+            isHost = true;
+            myRoomId = generateRoomId();
+            const peerId = ID_PREFIX + myRoomId;
 
-        setupPeerConnection();
-
-        const channel = peerConnection.createDataChannel('game', {
-            ordered: true
-        });
-        setupDataChannel(channel);
-
-        let hostCandidates = [];
-        let candidatesComplete = false;
-
-        peerConnection.onicecandidate = (event) => {
-            if (event.candidate) {
-                hostCandidates.push(event.candidate);
-            } else {
-                candidatesComplete = true;
-                // Store offer + candidates
-                const offerData = {
-                    sdp: peerConnection.localDescription,
-                    candidates: hostCandidates
-                };
-                localStorage.setItem('rspmp_room_' + roomId + '_offer', encode(offerData));
+            // Destroy any existing peer
+            if (peer) {
+                try { peer.destroy(); } catch (e) {}
+                peer = null;
             }
-        };
 
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
+            peer = new Peer(peerId, {
+                debug: 1,
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        { urls: 'stun:stun.cloudflare.com:3478' }
+                    ]
+                }
+            });
 
-        // If candidates gathered synchronously (unlikely), store immediately
-        setTimeout(() => {
-            if (candidatesComplete) return;
-            const offerData = {
-                sdp: peerConnection.localDescription,
-                candidates: hostCandidates
-            };
-            localStorage.setItem('rspmp_room_' + roomId + '_offer', encode(offerData));
-        }, 2000);
+            let resolved = false;
 
-        // Poll for answer
-        pollInterval = setInterval(async () => {
-            const answerRaw = localStorage.getItem('rspmp_room_' + roomId + '_answer');
-            if (answerRaw) {
-                const answerData = decode(answerRaw);
-                if (answerData) {
-                    clearInterval(pollInterval);
-                    pollInterval = null;
+            peer.on('open', (id) => {
+                if (resolved) return;
+                resolved = true;
+                resolve(myRoomId);
+            });
 
-                    await peerConnection.setRemoteDescription(answerData.sdp);
-                    for (const candidate of answerData.candidates) {
-                        await peerConnection.addIceCandidate(candidate);
+            peer.on('connection', (connection) => {
+                setupConnection(connection);
+            });
+
+            peer.on('error', (err) => {
+                console.error('Peer error:', err);
+                if (!resolved) {
+                    resolved = true;
+                    if (err.type === 'unavailable-id') {
+                        // Retry with new ID
+                        myRoomId = generateRoomId();
+                        host().then(resolve).catch(reject);
+                    } else {
+                        reject(new Error('Erro ao criar sala: ' + err.type));
+                    }
+                } else {
+                    if (onCloseCallback && (err.type === 'network' || err.type === 'disconnected' || err.type === 'peer-unavailable')) {
+                        onCloseCallback();
                     }
                 }
-            }
-        }, 500);
+            });
 
-        return roomId;
+            peer.on('disconnected', () => {
+                // Try reconnect to signaling (not needed for data)
+                try { peer.reconnect(); } catch (e) {}
+            });
+
+            // Timeout fallback
+            setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    reject(new Error('Tempo esgotado ao criar sala. Tente novamente.'));
+                }
+            }, 15000);
+        });
     }
 
     // ---- JOIN ----
-    async function join(code) {
-        isHost = false;
-        roomId = code.toUpperCase().trim();
+    function join(code) {
+        return new Promise((resolve, reject) => {
+            isHost = false;
+            myRoomId = code.toUpperCase().trim();
+            const hostPeerId = ID_PREFIX + myRoomId;
 
-        const offerRaw = localStorage.getItem('rspmp_room_' + roomId + '_offer');
-        if (!offerRaw) {
-            throw new Error('Sala não encontrada. Verifique o código.');
-        }
-
-        const offerData = decode(offerRaw);
-        if (!offerData) {
-            throw new Error('Dados da sala corrompidos.');
-        }
-
-        setupPeerConnection();
-
-        peerConnection.ondatachannel = (event) => {
-            setupDataChannel(event.channel);
-        };
-
-        let guestCandidates = [];
-
-        peerConnection.onicecandidate = (event) => {
-            if (event.candidate) {
-                guestCandidates.push(event.candidate);
-            } else {
-                const answerData = {
-                    sdp: peerConnection.localDescription,
-                    candidates: guestCandidates
-                };
-                localStorage.setItem('rspmp_room_' + roomId + '_answer', encode(answerData));
+            // Destroy any existing peer
+            if (peer) {
+                try { peer.destroy(); } catch (e) {}
+                peer = null;
             }
-        };
 
-        await peerConnection.setRemoteDescription(offerData.sdp);
-        for (const candidate of offerData.candidates) {
-            await peerConnection.addIceCandidate(candidate);
-        }
+            // Create peer with random ID (guest doesn't need fixed ID)
+            peer = new Peer({
+                debug: 1,
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        { urls: 'stun:stun.cloudflare.com:3478' }
+                    ]
+                }
+            });
 
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
+            let resolved = false;
 
-        // Fallback store after timeout
-        setTimeout(() => {
-            const answerData = {
-                sdp: peerConnection.localDescription,
-                candidates: guestCandidates
-            };
-            localStorage.setItem('rspmp_room_' + roomId + '_answer', encode(answerData));
-        }, 2000);
+            peer.on('open', (id) => {
+                // Now try to connect to host
+                const connection = peer.connect(hostPeerId, {
+                    reliable: true
+                });
+
+                connection.on('open', () => {
+                    if (resolved) return;
+                    resolved = true;
+                    setupConnection(connection);
+                    resolve();
+                });
+
+                connection.on('error', (err) => {
+                    if (!resolved) {
+                        resolved = true;
+                        reject(new Error('Sala não encontrada. Verifique o código.'));
+                    }
+                });
+            });
+
+            peer.on('error', (err) => {
+                console.error('Peer error:', err);
+                if (!resolved) {
+                    resolved = true;
+                    if (err.type === 'peer-unavailable') {
+                        reject(new Error('Sala não encontrada. Verifique o código.'));
+                    } else if (err.type === 'network' || err.type === 'server-error') {
+                        reject(new Error('Erro de rede. Tente novamente.'));
+                    } else {
+                        reject(new Error('Erro ao conectar: ' + err.type));
+                    }
+                } else {
+                    if (onCloseCallback) onCloseCallback();
+                }
+            });
+
+            // Timeout fallback
+            setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    reject(new Error('Tempo esgotado. Verifique o código e tente novamente.'));
+                }
+            }, 15000);
+        });
     }
 
     // ---- SEND MESSAGE ----
     function send(data) {
-        if (dataChannel && dataChannel.readyState === 'open') {
-            dataChannel.send(JSON.stringify(data));
+        if (conn && conn.open) {
+            conn.send(data);
         }
     }
 
     // ---- CLOSE ----
     function close() {
-        if (pollInterval) {
-            clearInterval(pollInterval);
-            pollInterval = null;
+        if (conn) {
+            try { conn.close(); } catch (e) {}
+            conn = null;
         }
-        if (dataChannel) {
-            dataChannel.close();
-            dataChannel = null;
+        if (peer) {
+            try { peer.destroy(); } catch (e) {}
+            peer = null;
         }
-        if (peerConnection) {
-            peerConnection.close();
-            peerConnection = null;
-        }
-        clearSignalingData();
     }
 
     // ---- EVENT HANDLERS ----
@@ -239,7 +214,7 @@ const Connection = (() => {
     function onClose(cb) { onCloseCallback = cb; }
 
     function isConnected() {
-        return dataChannel && dataChannel.readyState === 'open';
+        return conn && conn.open;
     }
 
     return {
