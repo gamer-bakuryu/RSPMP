@@ -1,36 +1,32 @@
-const Game = (() => {
-    const SYMBOLS = {
-        ROCK: { emoji: '🪨', name: 'Pedra', beats: 'SCISSORS' },
-        PAPER: { emoji: '📄', name: 'Papel', beats: 'ROCK' },
+var Game = (function () {
+    var SYMBOLS = {
+        ROCK:     { emoji: '🪨', name: 'Pedra',   beats: 'SCISSORS' },
+        PAPER:    { emoji: '📄', name: 'Papel',   beats: 'ROCK' },
         SCISSORS: { emoji: '✂️', name: 'Tesoura', beats: 'PAPER' }
     };
 
-    const SYMBOL_KEYS = ['ROCK', 'PAPER', 'SCISSORS'];
+    var SYMBOL_KEYS = ['ROCK', 'PAPER', 'SCISSORS'];
 
-    let state = {
-        myName: '',
-        opponentName: '',
-        myScore: 0,
-        opponentScore: 0,
-        myHand: [],
-        myChoice: null,
-        opponentChoice: null,
-        roundNumber: 0,
-        log: [],
-        waiting: false,
-        gameOver: false,
-        isHost: false
-    };
+    var state = emptyState();
+    var cardIdCounter = 0;
 
-    let cardIdCounter = 0;
+    function emptyState() {
+        return {
+            myName: '', opponentName: '',
+            myScore: 0, opponentScore: 0,
+            myHand: [], myChoice: null, opponentChoice: null,
+            roundNumber: 0, log: [],
+            waiting: false, gameOver: false, isHost: false,
+            matchNumber: 1
+        };
+    }
 
     function generateHand() {
-        const hand = [];
-        for (let i = 0; i < 5; i++) {
-            const type = SYMBOL_KEYS[Math.floor(Math.random() * 3)];
+        var hand = [];
+        for (var i = 0; i < 5; i++) {
             hand.push({
                 id: cardIdCounter++,
-                type: type,
+                type: SYMBOL_KEYS[Math.floor(Math.random() * 3)],
                 used: false
             });
         }
@@ -39,61 +35,69 @@ const Game = (() => {
 
     function init(myName, opponentName, host) {
         cardIdCounter = 0;
-        state = {
-            myName: myName,
-            opponentName: opponentName,
-            myScore: 0,
-            opponentScore: 0,
-            myHand: generateHand(),
-            myChoice: null,
-            opponentChoice: null,
-            roundNumber: 0,
-            log: [],
-            waiting: false,
-            gameOver: false,
-            isHost: host
-        };
-        return { ...state };
+        state = emptyState();
+        state.myName = myName;
+        state.opponentName = opponentName;
+        state.isHost = host;
+        state.myHand = generateHand();
+        return getState();
+    }
+
+    /* Revanche: mantém nomes, zera placar, novas cartas */
+    function reset() {
+        var m = state.matchNumber + 1;
+        var myName = state.myName;
+        var oppName = state.opponentName;
+        var host = state.isHost;
+
+        cardIdCounter = 0;
+        state = emptyState();
+        state.myName = myName;
+        state.opponentName = oppName;
+        state.isHost = host;
+        state.matchNumber = m;
+        state.myHand = generateHand();
+        return getState();
     }
 
     function getState() {
-        return { ...state, myHand: state.myHand.map(c => ({ ...c })) };
+        var copy = {};
+        for (var k in state) copy[k] = state[k];
+        copy.myHand = state.myHand.map(function (c) {
+            return { id: c.id, type: c.type, used: c.used };
+        });
+        return copy;
     }
 
-    function selectCard(cardIndex) {
+    function selectCard(i) {
         if (state.gameOver || state.waiting) return false;
-        if (cardIndex < 0 || cardIndex >= state.myHand.length) return false;
-        if (state.myHand[cardIndex].used) return false;
-        state.myChoice = cardIndex;
+        if (i < 0 || i >= state.myHand.length) return false;
+        if (state.myHand[i].used) return false;
+        state.myChoice = i;
         return true;
-    }
-
-    function deselectCard() {
-        state.myChoice = null;
     }
 
     function confirmChoice() {
         if (state.myChoice === null) return null;
-        const card = state.myHand[state.myChoice];
+        var card = state.myHand[state.myChoice];
         card.used = true;
         state.waiting = true;
         return card.type;
     }
 
-    function receiveOpponentChoice(symbolKey) {
-        state.opponentChoice = symbolKey;
+    function receiveOpponentChoice(sym) {
+        state.opponentChoice = sym;
     }
 
     function resolveRound() {
         if (state.myChoice === null || state.opponentChoice === null) return null;
 
-        const myCard = state.myHand[state.myChoice];
-        const mySymbol = myCard.type;
-        const oppSymbol = state.opponentChoice;
+        var mySymbol = state.myHand[state.myChoice].type;
+        var oppSymbol = state.opponentChoice;
 
         state.roundNumber++;
 
-        let result;
+        var result;
         if (mySymbol === oppSymbol) {
             result = 'draw';
         } else if (SYMBOLS[mySymbol].beats === oppSymbol) {
@@ -104,70 +108,57 @@ const Game = (() => {
             state.opponentScore++;
         }
 
-        let logText;
-        if (result === 'win') {
-            logText = state.myName + ' venceu!';
-        } else if (result === 'lose') {
-            logText = state.opponentName + ' venceu!';
-        } else {
-            logText = 'Empate!';
-        }
+        var logText = result === 'win'  ? state.myName + ' venceu!'
+                    : result === 'lose' ? state.opponentName + ' venceu!'
+                    : 'Empate!';
 
         state.log.push({
             round: state.roundNumber,
-            mySymbol: mySymbol,
-            oppSymbol: oppSymbol,
-            result: result,
-            text: logText
+            mySymbol: mySymbol, oppSymbol: oppSymbol,
+            result: result, text: logText
         });
 
-        const roundResult = {
+        var out = {
             result: result,
-            mySymbol: mySymbol,
-            oppSymbol: oppSymbol,
-            myScore: state.myScore,
-            oppScore: state.opponentScore,
+            mySymbol: mySymbol, oppSymbol: oppSymbol,
+            myScore: state.myScore, oppScore: state.opponentScore,
             roundNumber: state.roundNumber,
             logText: logText,
-            gameOver: false,
-            winner: null,
-            newHand: false
+            gameOver: false, winner: null, newHand: false
         };
 
         if (Math.abs(state.myScore - state.opponentScore) >= 2 && state.roundNumber >= 2) {
             state.gameOver = true;
-            roundResult.gameOver = true;
-            roundResult.winner = state.myScore > state.opponentScore ? 'me' : 'opponent';
+            out.gameOver = true;
+            out.winner = state.myScore > state.opponentScore ? 'me' : 'opponent';
         }
 
         state.myChoice = null;
         state.opponentChoice = null;
         state.waiting = false;
 
-        const availableCards = state.myHand.filter(c => !c.used);
-        if (availableCards.length === 0 && !state.gameOver) {
+        var left = state.myHand.filter(function (c) { return !c.used; });
+        if (left.length === 0 && !state.gameOver) {
             state.myHand = generateHand();
-            roundResult.newHand = true;
+            out.newHand = true;
         }
 
-        return roundResult;
+        return out;
     }
 
-    function forceEnd() {
-        state.gameOver = true;
-    }
+    function forceEnd() { state.gameOver = true; }
 
     return {
-        SYMBOLS,
-        SYMBOL_KEYS,
-        init,
-        getState,
-        generateHand,
-        selectCard,
-        deselectCard,
-        confirmChoice,
-        receiveOpponentChoice,
-        resolveRound,
-        forceEnd
+        SYMBOLS: SYMBOLS,
+        SYMBOL_KEYS: SYMBOL_KEYS,
+        init: init,
+        reset: reset,
+        getState: getState,
+        generateHand: generateHand,
+        selectCard: selectCard,
+        confirmChoice: confirmChoice,
+        receiveOpponentChoice: receiveOpponentChoice,
+        resolveRound: resolveRound,
+        forceEnd: forceEnd
     };
 })();
